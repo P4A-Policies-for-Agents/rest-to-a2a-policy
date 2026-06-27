@@ -1,0 +1,7 @@
+{
+  "main": "gcl.yaml",
+  "groupId": "00000000-0000-0000-0000-000000000000",
+  "assetId": "rest-to-a2a",
+  "version": "1.0.0",
+  "name": "REST to A2A Bridge"
+}

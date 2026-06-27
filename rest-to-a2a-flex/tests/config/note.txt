@@ -1,0 +1,2 @@
+Integration tests mount this directory into the Flex container. Place a
+locally-generated registration.yaml here (it is gitignored). See README.

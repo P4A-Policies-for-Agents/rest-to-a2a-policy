@@ -1,0 +1,36 @@
+# Copyright 2026 Salesforce, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: gateway.mulesoft.com/v1alpha1
+kind: ApiInstance
+metadata:
+  name: ingress-http
+spec:
+  address: http://0.0.0.0:8185
+  services:
+    upstream:
+      # Point at the external A2A agent. The httpbin backend below just echoes,
+      # so for real testing replace this with your A2A agent's base address.
+      address: "http://backend"
+      routes:
+        - config:
+            destinationPath: /
+  policies:
+    - policyRef:
+        name: rest-to-a2a-flex-v1-0
+        namespace: default
+      config:
+        upstreamBinding: jsonrpc
+        promptSelector: "#[payload.prompt]"
+        continuationMode: cache
+        contextKeySelector: "#[attributes.headers['x-conversation-id']]"
+        taskIdSelector: "#[null]"
+        contextIdSelector: "#[null]"
+        responseMapping: "#[payload]"
+        a2aConfiguration:
+          acceptedOutputModes:
+            - text/plain
+          blocking: true
+        distributed: false
+        conversationTtlSeconds: 3600
+        requestErrorStatus: 400

@@ -1,0 +1,169 @@
+# Copyright 2026 Salesforce, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: gateway.mulesoft.com/v1alpha1
+kind: Extension
+metadata:
+  labels:
+    title: REST to A2A Bridge
+    description: |
+      Converts an inbound REST API call into an outbound A2A protocol v1.0
+      SendMessage to an external A2A agent. The prompt and conversation
+      identity are extracted from the REST request via DataWeave; the raw A2A
+      Task/Message response is shaped back to REST via DataWeave. Supports the
+      JSON-RPC 2.0 and HTTP+JSON upstream bindings. Multi-turn continuation via
+      a gossip-safe conversation cache or client-supplied taskId/contextId.
+      Streaming (SSE) is NOT supported.
+    category: A2A
+    metadata/interfaceScope: api,resource
+    metadata/capabilities/assetTypes: a2a,a2a_v1
+spec:
+  extends:
+    - name: extension-definition
+      namespace: default
+  properties:
+    upstreamBinding:
+      type: string
+      title: Upstream A2A Binding
+      description: >
+        Wire binding used to call the upstream A2A agent. `jsonrpc` posts a
+        JSON-RPC 2.0 envelope (method `SendMessage`). `httpjson` posts the bare
+        A2A payload to the HTTP+JSON route `POST /message:send`.
+      enum:
+        - jsonrpc
+        - httpjson
+      default: jsonrpc
+    promptSelector:
+      type: string
+      title: Prompt Selector (DataWeave)
+      description: >
+        DataWeave expression returning the prompt string from the inbound REST
+        request. Fail-closed: a null/empty/error result rejects the request with
+        `requestErrorStatus` and the upstream is not called.
+      format: dataweave
+      default: "#[payload.prompt]"
+      bindings:
+        payload:
+          mimeType: json
+        attributes: true
+        authentication: false
+        vars: []
+    continuationMode:
+      type: string
+      title: Continuation Mode
+      description: >
+        How multi-turn A2A continuation is handled. `cache`: derive a cache key
+        from `contextKeySelector`, persist/inject contextId+taskId. `explicit`:
+        client supplies taskId/contextId via selectors; nothing is stored.
+        `none`: single-shot, no continuation.
+      enum:
+        - cache
+        - explicit
+        - none
+      default: cache
+    contextKeySelector:
+      type: string
+      title: Conversation Key Selector (DataWeave)
+      description: >
+        Used only when `continuationMode=cache`. DataWeave expression returning a
+        conversation-identifying value (header/field). It is SHA-256 hashed into
+        the cache key. A null result means single-shot (no caching for this call).
+      format: dataweave
+      default: "#[null]"
+      bindings:
+        payload:
+          mimeType: json
+        attributes: true
+        authentication: false
+        vars: []
+    taskIdSelector:
+      type: string
+      title: Task ID Selector (DataWeave)
+      description: >
+        Used only when `continuationMode=explicit`. DataWeave expression
+        returning the A2A `taskId` to continue. Null means a fresh task.
+      format: dataweave
+      default: "#[null]"
+      bindings:
+        payload:
+          mimeType: json
+        attributes: true
+        authentication: false
+        vars: []
+    contextIdSelector:
+      type: string
+      title: Context ID Selector (DataWeave)
+      description: >
+        Used only when `continuationMode=explicit`. DataWeave expression
+        returning the A2A `contextId` to continue. Null means a fresh context.
+      format: dataweave
+      default: "#[null]"
+      bindings:
+        payload:
+          mimeType: json
+        attributes: true
+        authentication: false
+        vars: []
+    responseMapping:
+      type: string
+      title: Response Mapping (DataWeave)
+      description: >
+        DataWeave expression run against the raw A2A result object (the Task or
+        Message) to shape the REST response body. On error the raw A2A body is
+        passed through unchanged (non-fatal) and a warning is logged.
+      format: dataweave
+      default: "#[payload]"
+      bindings:
+        payload:
+          mimeType: json
+        attributes: true
+        authentication: false
+        vars: []
+    a2aConfiguration:
+      type: object
+      title: A2A SendMessage Configuration
+      description: Optional `configuration` block attached to the A2A SendMessage.
+      properties:
+        acceptedOutputModes:
+          type: array
+          title: Accepted Output Modes
+          description: MIME types the agent may use for output (e.g. text/plain).
+          items:
+            type: string
+        blocking:
+          type: boolean
+          title: Blocking
+          description: Request the agent block until the task reaches a terminal or interrupted state.
+          default: true
+    distributed:
+      type: boolean
+      title: Distributed Cache
+      description: >
+        Only relevant when `continuationMode=cache`. When true, the conversation
+        cache uses the gossip-replicated remote store shared across replicas;
+        when false, a local per-replica store is used.
+      default: false
+    conversationTtlSeconds:
+      type: integer
+      title: Conversation TTL (seconds)
+      description: >
+        Lifetime of a cached conversation entry and the remote namespace TTL.
+        Only relevant when `continuationMode=cache`.
+      default: 3600
+      minimum: 60
+      maximum: 86400
+    requestErrorStatus:
+      type: integer
+      title: Request Error Status
+      description: HTTP status returned to the caller when prompt extraction fails (fail-closed).
+      default: 400
+      minimum: 400
+      maximum: 599
+  required:
+    - upstreamBinding
+    - promptSelector
+    - continuationMode
+    - contextKeySelector
+    - taskIdSelector
+    - contextIdSelector
+    - responseMapping

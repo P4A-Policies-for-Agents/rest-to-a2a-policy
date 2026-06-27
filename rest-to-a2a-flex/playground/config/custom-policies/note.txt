@@ -1,0 +1,2 @@
+Compiled custom policy binaries are dropped here at build time by `make run`.
+This file keeps the directory tracked; the binaries themselves are gitignored.

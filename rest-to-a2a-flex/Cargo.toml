@@ -1,0 +1,39 @@
+# Copyright 2026 Salesforce, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rest_to_a2a"
+version = "1.0.0"
+rust-version = "1.88.0"
+edition = "2021"
+resolver = "2"
+description = "REST to A2A v1.0 SendMessage bridge policy for MuleSoft Omni Gateway"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.anypoint]
+group_id = "00000000-0000-0000-0000-000000000000"
+definition_asset_id = { name = "rest-to-a2a", version = "1.0.0" }
+implementation_asset_id = "rest-to-a2a-flex"
+
+[dependencies]
+pdk = { version = "1.9.0", features = ["enable_stop_iteration"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc", "raw_value"] }
+anyhow = "1.0"
+thiserror = "1.0"
+mime = "0.3"
+sha2 = "0.10"
+
+[dev-dependencies]
+pdk-test = { version = "1.9.0" }
+pdk-unit = { version = "1.9.0" }
+httpmock = "0.6"
+reqwest = { version = "0.11", features = ["json"] }
+
+[profile.release]
+lto = true
+opt-level = 'z'
+strip = "debuginfo"

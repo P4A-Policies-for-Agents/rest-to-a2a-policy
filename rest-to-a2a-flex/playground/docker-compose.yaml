@@ -1,0 +1,14 @@
+# Copyright 2026 Salesforce, Inc. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  local-flex:
+    image: mulesoft/flex-gateway:1.12.1
+    platform: linux/amd64
+    ports:
+      - 8185:8185
+    volumes:
+      - ./config:/usr/local/share/mulesoft/flex-gateway/conf.d/
+  backend:
+    image: kennethreitz/httpbin
+    platform: linux/amd64
