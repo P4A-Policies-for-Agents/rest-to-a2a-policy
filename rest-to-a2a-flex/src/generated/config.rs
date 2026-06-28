@@ -18,6 +18,12 @@ pub struct Config {
     #[serde(alias = "promptSelector", deserialize_with = "de_selector")]
     pub prompt_selector: pdk::script::Script,
 
+    #[serde(
+        alias = "enableTaskContinuation",
+        default = "default_enable_task_continuation"
+    )]
+    pub enable_task_continuation: bool,
+
     #[serde(alias = "continuationMode", default = "default_continuation_mode")]
     pub continuation_mode: String,
 
@@ -30,8 +36,14 @@ pub struct Config {
     #[serde(alias = "contextIdSelector", deserialize_with = "de_selector")]
     pub context_id_selector: pdk::script::Script,
 
+    #[serde(alias = "customResponse", default = "default_custom_response")]
+    pub custom_response: bool,
+
     #[serde(alias = "responseMapping", deserialize_with = "de_selector")]
     pub response_mapping: pdk::script::Script,
+
+    #[serde(alias = "responseFields", default)]
+    pub response_fields: Vec<ResponseField>,
 
     #[serde(alias = "a2aConfiguration")]
     pub a2a_configuration: Option<A2aConfiguration>,
@@ -39,11 +51,30 @@ pub struct Config {
     #[serde(alias = "distributed", default = "default_distributed")]
     pub distributed: bool,
 
-    #[serde(alias = "conversationTtlSeconds", default = "default_conversation_ttl_seconds")]
+    #[serde(
+        alias = "conversationTtlSeconds",
+        default = "default_conversation_ttl_seconds"
+    )]
     pub conversation_ttl_seconds: i64,
 
     #[serde(alias = "requestErrorStatus", default = "default_request_error_status")]
     pub request_error_status: i64,
+}
+
+/// One entry of `responseFields`: a (possibly dotted) output `name` plus a
+/// dotted JSON-path `selector` resolved against the raw A2A result. The policy
+/// assembles these into the REST response in Rust — see `response_build.rs` for
+/// why construction can't live in a single DataWeave property, and `select.rs`
+/// for why the per-field selector is a plain path string rather than DataWeave
+/// (the gateway's `dw2pel` transform does not compile `format: dataweave`
+/// nested inside array items, so a `#[...]` here would reach the policy as an
+/// uncompiled string and fail to parse).
+#[derive(Deserialize, Clone, Debug)]
+pub struct ResponseField {
+    #[serde(alias = "name")]
+    pub name: String,
+    #[serde(alias = "selector")]
+    pub selector: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -58,11 +89,19 @@ fn default_upstream_binding() -> String {
     "jsonrpc".to_string()
 }
 
+fn default_enable_task_continuation() -> bool {
+    true
+}
+
 fn default_continuation_mode() -> String {
     "cache".to_string()
 }
 
 fn default_distributed() -> bool {
+    false
+}
+
+fn default_custom_response() -> bool {
     false
 }
 

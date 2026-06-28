@@ -48,6 +48,17 @@ spec:
         attributes: true
         authentication: false
         vars: []
+    enableTaskContinuation:
+      type: boolean
+      title: Enable Task Continuation
+      description: >
+        Master switch for multi-turn A2A task continuation. When true (default)
+        the policy preserves conversation continuity per `continuationMode`. When
+        false, continuation is disabled entirely: no cache is used, no
+        taskId/contextId is carried forward, and every call is single-shot, and
+        the continuation settings below (continuationMode and the selectors) are
+        ignored.
+      default: true
     continuationMode:
       type: string
       title: Continuation Mode
@@ -104,10 +115,20 @@ spec:
         attributes: true
         authentication: false
         vars: []
+    customResponse:
+      type: boolean
+      title: Custom Response
+      description: >
+        Master switch for response shaping. When false (default) the raw A2A
+        result is returned to the caller unchanged (byte-faithful passthrough).
+        When true the response is shaped: if `responseFields` is non-empty it
+        takes precedence, otherwise `responseMapping` is applied.
+      default: false
     responseMapping:
       type: string
       title: Response Mapping (DataWeave)
       description: >
+        Only used when `customResponse` is true and `responseFields` is empty.
         DataWeave expression run against the raw A2A result object (the Task or
         Message) to shape the REST response body. On error the raw A2A body is
         passed through unchanged (non-fatal) and a warning is logged.
@@ -119,6 +140,40 @@ spec:
         attributes: true
         authentication: false
         vars: []
+    responseFields:
+      type: array
+      title: Response Fields (path selectors)
+      description: >
+        IGNORED unless `customResponse` is true (leave it empty otherwise). Build
+        the REST response from dotted-path selections of the raw A2A result; the
+        policy
+        assembles the object. When non-empty this takes PRECEDENCE over
+        `responseMapping`. Use this to produce a flat/custom envelope: the
+        gateway's embedded DataWeave rejects object construction inside a single
+        expression, so reshaping is expressed as a list of selections here. Each
+        `selector` is a plain JSON path (NOT DataWeave) — the gateway does not
+        compile DataWeave nested inside array items. An output `name` may be
+        dotted (e.g. `data.taskRef`) to nest. Conditionals and computed values
+        are out of scope.
+      default: []
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+            title: Output Field Name
+            description: Output key; dotted (e.g. `data.taskRef`) builds nested objects.
+          selector:
+            type: string
+            title: Field Path Selector
+            description: >
+              Dotted JSON path into the raw A2A result, e.g.
+              `task.status.update.parts[0].text`. Array indices are supported. An
+              optional leading `payload.` is ignored. A path that resolves to
+              nothing yields a null field.
+        required:
+          - name
+          - selector
     a2aConfiguration:
       type: object
       title: A2A SendMessage Configuration

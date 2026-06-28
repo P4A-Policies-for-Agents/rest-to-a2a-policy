@@ -22,10 +22,12 @@ spec:
       config:
         upstreamBinding: jsonrpc
         promptSelector: "#[payload.prompt]"
+        enableTaskContinuation: true
         continuationMode: cache
         contextKeySelector: "#[attributes.headers['x-conversation-id']]"
         taskIdSelector: "#[null]"
         contextIdSelector: "#[null]"
+        customResponse: true
         responseMapping: "#[payload]"
         a2aConfiguration:
           acceptedOutputModes:
