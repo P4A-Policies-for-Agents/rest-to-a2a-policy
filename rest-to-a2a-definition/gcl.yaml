@@ -6,14 +6,11 @@ kind: Extension
 metadata:
   labels:
     title: REST to A2A Bridge
-    description: |
-      Converts an inbound REST API call into an outbound A2A protocol v1.0
-      SendMessage to an external A2A agent. The prompt and conversation
-      identity are extracted from the REST request via DataWeave; the raw A2A
-      Task/Message response is shaped back to REST via DataWeave. Supports the
-      JSON-RPC 2.0 and HTTP+JSON upstream bindings. Multi-turn continuation via
-      a gossip-safe conversation cache or client-supplied taskId/contextId.
-      Streaming (SSE) is NOT supported.
+    description: >-
+      Converts an inbound REST call into an outbound A2A v1.0 SendMessage to an
+      external A2A agent. Prompt and conversation identity via DataWeave;
+      JSON-RPC 2.0 and HTTP+JSON bindings; multi-turn continuation via cache or
+      explicit ids. No streaming (SSE).
     category: A2A
     metadata/interfaceScope: api,resource
     metadata/capabilities/assetTypes: a2a,a2av1
