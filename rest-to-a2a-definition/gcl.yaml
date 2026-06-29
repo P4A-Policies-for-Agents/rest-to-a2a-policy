@@ -16,7 +16,7 @@ metadata:
       Streaming (SSE) is NOT supported.
     category: A2A
     metadata/interfaceScope: api,resource
-    metadata/capabilities/assetTypes: a2a,a2a_v1
+    metadata/capabilities/assetTypes: a2a,a2av1
 spec:
   extends:
     - name: extension-definition
