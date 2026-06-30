@@ -11,9 +11,8 @@ metadata:
       external A2A agent. Prompt and conversation identity via DataWeave;
       JSON-RPC 2.0 and HTTP+JSON bindings; multi-turn continuation via cache or
       explicit ids. No streaming (SSE).
-    category: A2A
+    category: Transformation
     metadata/interfaceScope: api,resource
-    metadata/capabilities/assetTypes: http
 spec:
   extends:
     - name: extension-definition
