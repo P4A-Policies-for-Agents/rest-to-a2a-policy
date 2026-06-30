@@ -13,7 +13,7 @@ metadata:
       explicit ids. No streaming (SSE).
     category: A2A
     metadata/interfaceScope: api,resource
-    metadata/capabilities/assetTypes: a2a,a2av1
+    metadata/capabilities/assetTypes: http
 spec:
   extends:
     - name: extension-definition
