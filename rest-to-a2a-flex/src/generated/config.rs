@@ -18,26 +18,28 @@ pub struct Config {
     #[serde(alias = "promptSelector", deserialize_with = "de_selector")]
     pub prompt_selector: pdk::script::Script,
 
-    #[serde(
-        alias = "enableTaskContinuation",
-        default = "default_enable_task_continuation"
-    )]
-    pub enable_task_continuation: bool,
-
     #[serde(alias = "continuationMode", default = "default_continuation_mode")]
     pub continuation_mode: String,
 
     #[serde(alias = "contextKeySelector", deserialize_with = "de_selector")]
     pub context_key_selector: pdk::script::Script,
 
-    #[serde(alias = "taskIdSelector", deserialize_with = "de_selector")]
-    pub task_id_selector: pdk::script::Script,
+    #[serde(
+        alias = "taskIdSelector",
+        default,
+        deserialize_with = "de_optional_selector"
+    )]
+    pub task_id_selector: Option<pdk::script::Script>,
 
-    #[serde(alias = "contextIdSelector", deserialize_with = "de_selector")]
-    pub context_id_selector: pdk::script::Script,
+    #[serde(
+        alias = "contextIdSelector",
+        default,
+        deserialize_with = "de_optional_selector"
+    )]
+    pub context_id_selector: Option<pdk::script::Script>,
 
-    #[serde(alias = "customResponse", default = "default_custom_response")]
-    pub custom_response: bool,
+    #[serde(alias = "responseType", default = "default_response_type")]
+    pub response_type: String,
 
     #[serde(alias = "responseMapping", deserialize_with = "de_selector")]
     pub response_mapping: pdk::script::Script,
@@ -47,6 +49,13 @@ pub struct Config {
 
     #[serde(alias = "a2aConfiguration")]
     pub a2a_configuration: Option<A2aConfiguration>,
+
+    #[serde(
+        alias = "metadataSelector",
+        default,
+        deserialize_with = "de_optional_selector"
+    )]
+    pub metadata_selector: Option<pdk::script::Script>,
 
     #[serde(alias = "distributed", default = "default_distributed")]
     pub distributed: bool,
@@ -89,10 +98,6 @@ fn default_upstream_binding() -> String {
     "jsonrpc".to_string()
 }
 
-fn default_enable_task_continuation() -> bool {
-    true
-}
-
 fn default_continuation_mode() -> String {
     "cache".to_string()
 }
@@ -101,8 +106,8 @@ fn default_distributed() -> bool {
     false
 }
 
-fn default_custom_response() -> bool {
-    false
+fn default_response_type() -> String {
+    "raw".to_string()
 }
 
 fn default_conversation_ttl_seconds() -> i64 {
@@ -131,4 +136,24 @@ where
         .input(pdk::script::Input::Payload(pdk::script::Format::Json))
         .compile()
         .map_err(serde::de::Error::custom)
+}
+
+/// Deserialize an OPTIONAL DataWeave selector. The `taskIdSelector` and
+/// `contextIdSelector` have no schema default, so a missing key (or an explicit
+/// JSON `null`) yields `None` and the explicit-mode code treats that as "fresh
+/// task / context". A present string compiles exactly like [`de_selector`].
+fn de_optional_selector<'de, D>(deserializer: D) -> Result<Option<pdk::script::Script>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let exp: Option<pdk::script::Expression> = serde::de::Deserialize::deserialize(deserializer)?;
+    match exp {
+        Some(exp) => pdk::script::ScriptingEngine::script(&exp)
+            .input(pdk::script::Input::Attributes)
+            .input(pdk::script::Input::Payload(pdk::script::Format::Json))
+            .compile()
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
 }

@@ -25,48 +25,44 @@ Streaming (SSE) is **not supported**: a `text/event-stream` upstream response is
 |---|---|---|---|
 | `upstreamBinding` | enum `jsonrpc`\|`httpjson` | `jsonrpc` | `jsonrpc`: JSON-RPC 2.0 envelope, method `SendMessage`. `httpjson`: bare A2A payload to `POST /message:send` (operator sets `destinationPath`). |
 | `promptSelector` | DataWeave | `#[payload.prompt]` | Prompt string from the REST request. Fail-closed on null/empty/error. |
-| `enableTaskContinuation` | boolean | `true` | Master switch for multi-turn continuation. `true`: continuity per `continuationMode`. `false`: forces single-shot — no cache, no `taskId`/`contextId` carried; the continuation settings below are ignored. |
-| `continuationMode` | enum `cache`\|`explicit`\|`none` | `cache` | Only when `enableTaskContinuation` is true. See **Continuation modes** below. |
-| `contextKeySelector` | DataWeave | `#[null]` | Cache mode only. Conversation value → SHA-256 → cache key. Null = single-shot. |
-| `taskIdSelector` | DataWeave | `#[null]` | Explicit mode only. Client-supplied `taskId`. |
-| `contextIdSelector` | DataWeave | `#[null]` | Explicit mode only. Client-supplied `contextId`. |
-| `customResponse` | boolean | `false` | Master switch for response shaping. `false`: return the raw A2A result **verbatim** (byte-faithful — no parse/reshape). `true`: shape the response — `responseFields` (if non-empty) wins, else `responseMapping`. The two fields below are ignored when this is off. |
-| `responseMapping` | DataWeave | `#[payload]` | Only when `customResponse` is true and `responseFields` is empty. Runs against the raw A2A result object. **Selection-only** (e.g. `#[payload.task]`) — object/array construction is rejected by the runtime and falls back to raw passthrough (see `docs/spec.md`). Non-fatal on error. |
-| `responseFields` | array of `{name, selector}` | `[]` | Only when `customResponse` is true. Assemble a flat/nested REST response from dotted JSON-path selections of the raw A2A result. **Overrides `responseMapping`** when non-empty. `selector` is a plain path (e.g. `task.status.update.parts[0].text`), NOT DataWeave — the gateway does not compile DataWeave nested inside array items. `name` may be dotted (e.g. `data.taskRef`) to nest. A path that resolves to nothing yields a `null` field. See **Building a custom response** below. |
+| `continuationMode` | enum `cache`\|`explicit`\|`none` | `cache` | How multi-turn continuation is handled. `cache`: gateway derives cache key from `contextKeySelector` and persists/injects taskId+contextId. `explicit`: client supplies ids via selectors. `none`: single-shot, no continuation. See **Continuation modes** below. API Manager hides mode-specific fields via `@visibleOn` conditional rendering. |
+| `contextKeySelector` | DataWeave | `#[null]` | Cache mode only. Conversation value → SHA-256 → cache key. Null = single-shot. API Manager shows this field only when `continuationMode = cache`. |
+| `taskIdSelector` | DataWeave | `#[null]` | Required (shown when `continuationMode = explicit`). DataWeave expression returning the A2A `taskId` to continue. Return null (the default) for a fresh task. |
+| `contextIdSelector` | DataWeave | `#[null]` | Required (shown when `continuationMode = explicit`). DataWeave expression returning the A2A `contextId` to continue. Return null (the default) for a fresh context. |
+| `responseType` | enum `raw`\|`mapping`\|`fields` | `raw` | How the upstream A2A response is returned. `raw` (default): byte-faithful passthrough. `mapping`: shape via `responseMapping`. `fields`: assemble via `responseFields`. Mode is explicit. |
+| `responseMapping` | DataWeave | `#[payload]` | Used only when `responseType = mapping` (API Manager shows it then). Runs against the raw A2A result object. **Selection-only** (e.g. `#[payload.task]`) — object/array construction is rejected by the runtime and falls back to raw passthrough (see `docs/spec.md`). Non-fatal on error. |
+| `responseFields` | array of `{name, selector}` | `[]` | Used only when `responseType = fields` (API Manager shows it then). Assemble a flat/nested REST response from dotted JSON-path selections of the raw A2A result. `selector` is a plain path (e.g. `task.status.update.parts[0].text`), NOT DataWeave — the gateway does not compile DataWeave nested inside array items. `name` may be dotted (e.g. `data.taskRef`) to nest. A path that resolves to nothing yields a `null` field. See **Building a custom response** below. |
 | `a2aConfiguration` | object | — | Optional SendMessage `configuration`: `acceptedOutputModes[]`, `blocking` (default true). |
+| `metadataSelector` | DataWeave | `#[{}]` | Optional. DataWeave expression returning an object of key/value pairs attached to the A2A message as `metadata`, e.g. `#[{tenant: attributes.headers['x-tenant'], traceId: payload.traceId}]`. Each value may be any DataWeave expression. A null/non-object/empty result attaches no metadata. |
 | `distributed` | boolean | `false` | Cache mode only. `true` = gossip-replicated remote store shared across replicas; `false` = local per-replica store. **`true` needs a multi-replica gateway** — in single-replica Local Mode the remote store does not persist across requests (see `docs/spec.md`). |
 | `conversationTtlSeconds` | integer | `3600` | Cache mode only. Entry lifetime + remote namespace TTL (min 60, max 86400). |
 | `requestErrorStatus` | integer | `400` | Caller-facing status on prompt-extraction failure (min 400, max 599). |
 
 ### Continuation modes
 
-Continuation is governed first by the `enableTaskContinuation` master switch
-(default `true`). Set it to `false` to disable multi-turn continuation entirely —
-the policy then runs single-shot regardless of `continuationMode`, builds no
-cache, carries no `taskId`/`contextId`, and ignores the continuation settings
-below. When `true`, `continuationMode` selects how continuity works:
+`continuationMode` controls how multi-turn A2A task continuation is handled:
 
-- **`cache`** — `contextKeySelector` yields a conversation value, hashed (SHA-256) into the cache key. A live continuable entry injects `taskId`+`contextId` on the next turn; continuable responses upsert the entry, terminal responses evict it. Gossip-safe (no DELETE-before-recreate; TTL eviction on remote). The raw conversation value is never stored.
-- **`explicit`** — the client supplies the ids via `taskIdSelector`/`contextIdSelector`; the cache is never touched.
-- **`none`** — single-shot; no continuation, no storage.
+- **`cache` (default)** — `contextKeySelector` yields a conversation value, hashed (SHA-256) into the cache key. A live continuable entry injects `taskId`+`contextId` on the next turn; continuable responses upsert the entry, terminal responses evict it. Gossip-safe (no DELETE-before-recreate; TTL eviction on remote). The raw conversation value is never stored. API Manager shows `contextKeySelector`, `distributed`, and `conversationTtlSeconds` only when this mode is selected.
+- **`explicit`** — the client supplies the ids via `taskIdSelector`/`contextIdSelector`; the cache is never touched. API Manager shows the id selector fields only when this mode is selected.
+- **`none`** — single-shot; no continuation, no cache, no ids carried forward. Every call is independent.
 
 ### Building a custom response
 
-By default (`customResponse: false`) the policy returns the raw A2A result
-**verbatim** — a byte-faithful echo with no parse or reshape. This is the simplest
-posture and, unlike `responseMapping: "#[payload]"`, preserves JSON numbers exactly
-(identity mapping re-serializes `-32602` as `-32602.0`). Set `customResponse: true`
-to shape the response.
+By default (`responseType: raw`) the policy returns the raw A2A result **verbatim** —
+a byte-faithful echo with no parse or reshape. This is the simplest posture and,
+unlike `responseMapping: "#[payload]"`, preserves JSON numbers exactly (identity
+mapping re-serializes `-32602` as `-32602.0`). Set `responseType` to shape the
+response.
 
-When shaping, `responseMapping` can only *select* a sub-tree of the raw A2A result —
-the gateway's embedded DataWeave rejects object construction (see `docs/spec.md`).
-To return a **custom-shaped** REST body, use `responseFields` instead: list the
-output fields, each a `name` plus a dotted-path `selector` into the raw result. The
-policy resolves every path and assembles the object in Rust. With `customResponse`
-true, a non-empty `responseFields` takes precedence over `responseMapping`.
+When shaping with `responseType: mapping`, `responseMapping` can only *select* a
+sub-tree of the raw A2A result — the gateway's embedded DataWeave rejects object
+construction (see `docs/spec.md`). To return a **custom-shaped** REST body, set
+`responseType: fields` and use `responseFields`: list the output fields, each a
+`name` plus a dotted-path `selector` into the raw result. The policy resolves every
+path and assembles the object in Rust.
 
 ```yaml
-customResponse: true
+responseType: fields
 responseFields:
   - name: conversationId
     selector: task.contextId
@@ -108,12 +104,11 @@ policy so it sees the A2A body this policy surfaces. See
 
 #### Exposing the raw upstream response
 
-There is no dedicated "return raw" flag. The verbatim upstream body is already
-returned when `responseMapping` evaluation fails (non-fatal passthrough). To
-deliberately surface the raw A2A result, set `responseMapping: "#[payload]"` —
-but identity mapping re-serializes JSON numbers as doubles (`-32602` →
-`-32602.0`), so it is not byte-faithful. A true byte-for-byte echo would need a
-new config option (not currently implemented). See [`docs/spec.md`](docs/spec.md).
+Set `responseType: raw` (the default) for a byte-faithful verbatim passthrough of the
+upstream A2A result. No other configuration is needed. Note that `responseMapping:
+"#[payload]"` is not byte-faithful — identity mapping re-serializes JSON numbers as
+doubles (`-32602` → `-32602.0`). Use `responseType: raw` for a true byte-for-byte
+echo. See [`docs/spec.md`](docs/spec.md).
 
 The three modes are mutually exclusive. A continuable upstream reply that cannot be resumed (no cache key and no explicit ids) is still returned, with a warning logged.
 

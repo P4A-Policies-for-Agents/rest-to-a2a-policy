@@ -69,21 +69,10 @@ upstream is called (fail-closed). Bindings available to every selector: JSON
 ## 4. Configure multi-turn continuation
 
 A2A tasks are multi-turn: an `input-required` reply must be answered with the same
-`taskId`+`contextId`. The policy preserves that continuity.
+`taskId`+`contextId`. The policy preserves that continuity via the `continuationMode`
+setting.
 
-### 4.1 Master switch — `enableTaskContinuation`
-
-`enableTaskContinuation` (default `true`) turns continuation on or off wholesale.
-
-```yaml
-# Single-shot only — no cache, no ids carried, continuation settings ignored.
-enableTaskContinuation: false
-```
-
-When `false`, the policy ignores `continuationMode` and runs every call fresh.
-Use it for stateless, one-shot REST→A2A calls.
-
-### 4.2 Mode — `continuationMode` (when continuation is enabled)
+### 4.1 Continuation modes
 
 | Mode | Who supplies the ids | Cache used |
 |---|---|---|
@@ -95,7 +84,6 @@ Use it for stateless, one-shot REST→A2A calls.
 cache key; the raw value is never stored.
 
 ```yaml
-enableTaskContinuation: true
 continuationMode: cache
 contextKeySelector: "#[payload.sessionId]"        # body field
 # or from a header set by the channel:
@@ -105,27 +93,39 @@ conversationTtlSeconds: 3600
 ```
 
 Same `sessionId` resumes an `input-required` task; the caller never sees the A2A
-`taskId`/`contextId`.
+`taskId`/`contextId`. The API Manager UI shows `contextKeySelector`, `distributed`,
+and `conversationTtlSeconds` only when `continuationMode = cache`.
 
 **Explicit mode** — the client manages the ids itself.
 
 ```yaml
-enableTaskContinuation: true
 continuationMode: explicit
 taskIdSelector: "#[payload.taskId]"
 contextIdSelector: "#[payload.contextId]"
 ```
 
+The API Manager UI shows `taskIdSelector` and `contextIdSelector` only when
+`continuationMode = explicit`. Both are required fields with default `#[null]`.
+Return null (the default) for a fresh task/context.
+
+**None mode** — stateless, one-shot calls.
+
+```yaml
+continuationMode: none
+```
+
+No cache, no ids carried, every call is independent.
+
 ---
 
 ## 5. Configure the response side
 
-`customResponse` (default `false`) is the master switch for response shaping.
+`responseType` (enum, default `raw`) controls how the response is shaped.
 
 ### 5.1 Raw passthrough (default)
 
 ```yaml
-customResponse: false   # or simply omit it
+responseType: raw   # or simply omit it
 ```
 
 The upstream A2A body is returned to the caller **verbatim** — byte-faithful, no
@@ -137,7 +137,7 @@ stays an integer). Use it when the caller is happy to consume the raw A2A
 ### 5.2 Select a sub-tree with `responseMapping`
 
 ```yaml
-customResponse: true
+responseType: mapping
 responseMapping: "#[payload.task]"     # return just the Task object
 ```
 
@@ -146,17 +146,18 @@ responseMapping: "#[payload.task]"     # return just the Task object
 (`#[{ id: payload.task.id }]` and `%dw 2.0 … --- {…}` both fail and fall back to
 raw passthrough). So you can pick a sub-tree (`#[payload.task]`,
 `#[payload.task.status.state]`) but you cannot build a new shape here. On error
-the raw body passes through (non-fatal).
+the raw body passes through (non-fatal). API Manager shows `responseMapping` only
+when `responseType = mapping`.
 
 ### 5.3 Build a custom envelope with `responseFields`
 
-To return a **bespoke flat/nested** body, list the output fields. Each is an output
-`name` plus a dotted-path `selector` into the raw A2A result; the policy assembles
-the object in Rust. When `customResponse` is true and `responseFields` is
-non-empty, it **takes precedence** over `responseMapping`.
+To return a **bespoke flat/nested** body, set `responseType: fields` and list the
+output fields. Each is an output `name` plus a dotted-path `selector` into the raw
+A2A result; the policy assembles the object in Rust. API Manager shows
+`responseFields` only when `responseType = fields`.
 
 ```yaml
-customResponse: true
+responseType: fields
 responseFields:
   - name: conversationId
     selector: task.contextId
@@ -195,9 +196,9 @@ Notes:
 
 | You want | Use |
 |---|---|
-| The raw A2A body, byte-for-byte | `customResponse: false` (default) |
-| A single sub-tree of the result | `customResponse: true` + `responseMapping` |
-| A flat/nested envelope from selected fields | `customResponse: true` + `responseFields` |
+| The raw A2A body, byte-for-byte | `responseType: raw` (default) |
+| A single sub-tree of the result | `responseType: mapping` + `responseMapping` |
+| A flat/nested envelope from selected fields | `responseType: fields` + `responseFields` |
 | Full DataWeave (conditionals, `map`, computed) | chained DataWeave policy → §6 |
 
 ---
@@ -225,10 +226,10 @@ Reference:
 
 ### 6.2 How to wire it
 
-1. On `rest-to-a2a`, set `customResponse: false` (raw) — or a light
-   `responseMapping` selection — so the downstream policy receives the A2A result
-   (or sub-tree) to transform. Letting it pass raw is usually cleanest: the
-   transformation policy then sees the full upstream JSON.
+1. On `rest-to-a2a`, set `responseType: raw` (the default) — or a light
+   `responseMapping` selection with `responseType: mapping` — so the downstream
+   policy receives the A2A result (or sub-tree) to transform. Letting it pass raw
+   is usually cleanest: the transformation policy then sees the full upstream JSON.
 2. Attach the **DataWeave Body Transformation** policy to the **same API
    instance**, **ordered after** `rest-to-a2a`, with `requestFlow: onResponse` so
    it runs on the response leg.
@@ -272,9 +273,9 @@ output application/json
 
 - It runs in **streaming mode** and rewrites `Content-Type` / `Content-Length`.
 - **Ordering matters**: place it after `rest-to-a2a` so it sees the body this
-  policy surfaces. If `rest-to-a2a` already shaped the body (`responseFields` /
-  `responseMapping`), the DataWeave policy transforms *that* shape, not the raw
-  A2A result.
+  policy surfaces. If `rest-to-a2a` already shaped the body (via `responseType:
+  fields` or `responseType: mapping`), the DataWeave policy transforms *that*
+  shape, not the raw A2A result.
 - It is a separate policy the operator manages; it is not configured through
   `rest-to-a2a`'s schema.
 
@@ -286,13 +287,13 @@ output application/json
 
 ```yaml
 upstreamBinding: jsonrpc
-enableTaskContinuation: true
 continuationMode: cache
 contextKeySelector: "#[payload.sessionId]"
 distributed: false
 conversationTtlSeconds: 3600
 promptSelector: "#[payload.question]"
-customResponse: true
+metadataSelector: "#[{userId: payload.userId, sessionId: payload.sessionId}]"
+responseType: fields
 responseFields:
   - name: conversationId
     selector: task.contextId
@@ -309,9 +310,9 @@ requestErrorStatus: 400
 
 ```yaml
 upstreamBinding: jsonrpc
-enableTaskContinuation: false
+continuationMode: none
 promptSelector: "#[payload.prompt]"
-customResponse: false
+responseType: raw
 requestErrorStatus: 400
 ```
 
@@ -319,11 +320,10 @@ requestErrorStatus: 400
 
 ```yaml
 upstreamBinding: httpjson          # operator sets destinationPath: /message:send
-enableTaskContinuation: true
 continuationMode: cache
 contextKeySelector: "#[attributes.headers['x-conversation-id']]"
 promptSelector: "#[payload.prompt]"
-customResponse: true
+responseType: mapping
 responseMapping: "#[payload.task]"
 requestErrorStatus: 400
 ```
@@ -333,12 +333,11 @@ requestErrorStatus: 400
 ```yaml
 # rest-to-a2a: pass the raw A2A result downstream for full DataWeave transformation.
 upstreamBinding: jsonrpc
-enableTaskContinuation: true
 continuationMode: explicit
 taskIdSelector: "#[payload.taskId]"
 contextIdSelector: "#[payload.contextId]"
 promptSelector: "#[payload.prompt]"
-customResponse: false
+responseType: raw
 requestErrorStatus: 400
 # Then attach DataWeave Body Transformation (requestFlow: onResponse) AFTER this
 # policy on the same API instance — see §6.

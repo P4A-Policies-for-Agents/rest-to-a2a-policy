@@ -3343,7 +3343,7 @@ dependencies = [
 
 [[package]]
 name = "rest_to_a2a"
-version = "1.0.0"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "httpmock",

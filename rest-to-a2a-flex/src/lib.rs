@@ -149,15 +149,28 @@ async fn request_filter<S: DataStorage>(
     let mut prompt_eval = config.prompt_selector.evaluator();
     prompt_eval.bind_attributes(&attributes);
 
-    // Continuation selectors depend on the mode.
+    // Optional A2A message metadata selector (yields an object of key/value
+    // pairs). `None` evaluator means the operator left it empty — no metadata.
+    let mut metadata_eval = config.metadata_selector.as_ref().map(|s| s.evaluator());
+    if let Some(e) = metadata_eval.as_mut() {
+        e.bind_attributes(&attributes);
+    }
+
+    // Continuation selectors depend on the mode. The explicit-mode selectors are
+    // optional: a `None` evaluator means the operator left the box empty, which
+    // the explicit resolver treats as a fresh task/context.
     let mut key_eval = config.context_key_selector.evaluator();
-    let mut task_eval = config.task_id_selector.evaluator();
-    let mut ctx_eval = config.context_id_selector.evaluator();
+    let mut task_eval = config.task_id_selector.as_ref().map(|s| s.evaluator());
+    let mut ctx_eval = config.context_id_selector.as_ref().map(|s| s.evaluator());
     match config.continuation_mode {
         ContinuationMode::Cache => key_eval.bind_attributes(&attributes),
         ContinuationMode::Explicit => {
-            task_eval.bind_attributes(&attributes);
-            ctx_eval.bind_attributes(&attributes);
+            if let Some(e) = task_eval.as_mut() {
+                e.bind_attributes(&attributes);
+            }
+            if let Some(e) = ctx_eval.as_mut() {
+                e.bind_attributes(&attributes);
+            }
         }
         ContinuationMode::None => {}
     }
@@ -178,11 +191,18 @@ async fn request_filter<S: DataStorage>(
     let body = body_state.handler().body();
     let payload: &[u8] = &body;
     prompt_eval.bind_payload(&payload);
+    if let Some(e) = metadata_eval.as_mut() {
+        e.bind_payload(&payload);
+    }
     match config.continuation_mode {
         ContinuationMode::Cache => key_eval.bind_payload(&payload),
         ContinuationMode::Explicit => {
-            task_eval.bind_payload(&payload);
-            ctx_eval.bind_payload(&payload);
+            if let Some(e) = task_eval.as_mut() {
+                e.bind_payload(&payload);
+            }
+            if let Some(e) = ctx_eval.as_mut() {
+                e.bind_payload(&payload);
+            }
         }
         ContinuationMode::None => {}
     }
@@ -221,8 +241,15 @@ async fn request_filter<S: DataStorage>(
             }
         }
         ContinuationMode::Explicit => {
-            let task_id = task_eval.eval().ok().and_then(value_to_string);
-            let context_id = ctx_eval.eval().ok().and_then(value_to_string);
+            // A `None` evaluator (empty selector) yields no id → fresh.
+            let task_id = task_eval
+                .take()
+                .and_then(|e| e.eval().ok())
+                .and_then(value_to_string);
+            let context_id = ctx_eval
+                .take()
+                .and_then(|e| e.eval().ok())
+                .and_then(value_to_string);
             resolve_explicit(task_id, context_id)
         }
         ContinuationMode::None => RequestContinuation::default(),
@@ -232,11 +259,18 @@ async fn request_filter<S: DataStorage>(
     let mut seed = id_seed.into_bytes();
     seed.extend_from_slice(prompt.as_bytes());
     let message_id = a2a::generate_message_id(&seed);
+    // Resolve the optional metadata object. Any failure (or a non-object/empty
+    // result) yields no metadata — non-fatal, the send proceeds without it.
+    let metadata = metadata_eval
+        .take()
+        .and_then(|e| e.eval().ok())
+        .map(value_to_json);
     let params = a2a::build_send_message(
         &prompt,
         &message_id,
         &request_continuation.continuation,
         config.send_configuration.as_ref(),
+        metadata.as_ref(),
     );
     let framed = config.binding.frame_request(&message_id, params);
 

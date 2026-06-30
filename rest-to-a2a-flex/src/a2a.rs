@@ -67,17 +67,20 @@ pub struct SendConfiguration {
 ///     "role": "ROLE_USER",
 ///     "parts": [{ "text": "<prompt>" }],
 ///     "taskId": "...",     // only when resuming
-///     "contextId": "..."   // only when resuming
+///     "contextId": "...",  // only when resuming
+///     "metadata": { ... }  // only when a non-empty metadata object is supplied
 ///   },
 ///   "configuration": { "acceptedOutputModes": [...], "returnImmediately": false }
 /// }
 /// ```
 /// `configuration` is omitted entirely when no `a2aConfiguration` is set.
+/// `metadata` is attached only when `metadata` is a non-empty JSON object.
 pub fn build_send_message(
     prompt: &str,
     message_id: &str,
     continuation: &Continuation,
     configuration: Option<&SendConfiguration>,
+    metadata: Option<&Value>,
 ) -> Value {
     let mut message = Map::new();
     message.insert("messageId".to_string(), json!(message_id));
@@ -88,6 +91,13 @@ pub fn build_send_message(
     }
     if let Some(context_id) = &continuation.context_id {
         message.insert("contextId".to_string(), json!(context_id));
+    }
+    // Attach operator-supplied metadata only when it is a non-empty object; a
+    // null/non-object/empty result contributes nothing (keeps the wire clean).
+    if let Some(Value::Object(map)) = metadata {
+        if !map.is_empty() {
+            message.insert("metadata".to_string(), Value::Object(map.clone()));
+        }
     }
 
     let mut params = Map::new();
@@ -252,13 +262,14 @@ mod tests {
 
     #[test]
     fn send_message_fresh_shape() {
-        let params = build_send_message("hello", "mid1", &Continuation::default(), None);
+        let params = build_send_message("hello", "mid1", &Continuation::default(), None, None);
         assert_eq!(params["message"]["messageId"], "mid1");
         assert_eq!(params["message"]["role"], "ROLE_USER");
         assert_eq!(params["message"]["parts"][0]["text"], "hello");
-        // No continuation ids, no configuration on a fresh send.
+        // No continuation ids, no configuration, no metadata on a fresh send.
         assert!(params["message"].get("taskId").is_none());
         assert!(params["message"].get("contextId").is_none());
+        assert!(params["message"].get("metadata").is_none());
         assert!(params.get("configuration").is_none());
     }
 
@@ -268,9 +279,28 @@ mod tests {
             task_id: Some("t1".into()),
             context_id: Some("c1".into()),
         };
-        let params = build_send_message("hi", "mid2", &cont, None);
+        let params = build_send_message("hi", "mid2", &cont, None, None);
         assert_eq!(params["message"]["taskId"], "t1");
         assert_eq!(params["message"]["contextId"], "c1");
+    }
+
+    #[test]
+    fn send_message_attaches_metadata() {
+        let meta = json!({ "tenant": "acme", "traceId": "abc-123" });
+        let params = build_send_message("hi", "m", &Continuation::default(), None, Some(&meta));
+        assert_eq!(params["message"]["metadata"]["tenant"], "acme");
+        assert_eq!(params["message"]["metadata"]["traceId"], "abc-123");
+    }
+
+    #[test]
+    fn send_message_skips_empty_or_nonobject_metadata() {
+        let empty = json!({});
+        let p1 = build_send_message("hi", "m", &Continuation::default(), None, Some(&empty));
+        assert!(p1["message"].get("metadata").is_none());
+
+        let scalar = json!("not-an-object");
+        let p2 = build_send_message("hi", "m", &Continuation::default(), None, Some(&scalar));
+        assert!(p2["message"].get("metadata").is_none());
     }
 
     #[test]
@@ -279,7 +309,7 @@ mod tests {
             accepted_output_modes: Some(vec!["text/plain".into()]),
             blocking: true,
         };
-        let params = build_send_message("hi", "m", &Continuation::default(), Some(&cfg));
+        let params = build_send_message("hi", "m", &Continuation::default(), Some(&cfg), None);
         assert_eq!(
             params["configuration"]["acceptedOutputModes"][0],
             "text/plain"

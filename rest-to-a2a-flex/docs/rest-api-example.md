@@ -146,15 +146,15 @@ The body is the selected A2A `task` object:
 
 ```yaml
 upstreamBinding: jsonrpc
-enableTaskContinuation: true
 continuationMode: cache
 distributed: false
 conversationTtlSeconds: 3600
 requestErrorStatus: 400
 promptSelector: "#[payload.question]"
 contextKeySelector: "#[payload.sessionId]"
-customResponse: true
+responseType: mapping
 responseMapping: "#[payload.task]"
+metadataSelector: "#[{userId: payload.userId, channel: payload.metadata.channel}]"
 ```
 
 ### DataWeave selectors explained
@@ -163,6 +163,7 @@ responseMapping: "#[payload.task]"
 |---|---|---|---|
 | `promptSelector` | `#[payload.question]` | inbound REST body | the prompt string for the A2A message part. Null/empty ⇒ **fail-closed 400**. |
 | `contextKeySelector` | `#[payload.sessionId]` | inbound REST body | the conversation value → SHA-256 → cache key. Same `sessionId` resumes the task. |
+| `metadataSelector` | `#[{userId: payload.userId, channel: payload.metadata.channel}]` | inbound REST body | object of key/value pairs attached to the A2A message as `metadata`. A null/non-object result attaches nothing. |
 | `responseMapping` | `#[payload.task]` | **raw A2A result** (`{"task": {...}}`) | the `AskResponse` body — the selected `task` object. |
 
 The response mapping binds `payload` to the raw A2A `SendMessageResult` and
@@ -185,13 +186,12 @@ The response mapping binds `payload` to the raw A2A `SendMessageResult` and
 ### Custom envelope with `responseFields`
 
 To return a bespoke flat (or nested) shape instead of the raw `task`, set
-`responseFields` rather than `responseMapping`. Each entry is an output `name`
+`responseType: fields` and use `responseFields`. Each entry is an output `name`
 plus a **dotted JSON-path** `selector` into the raw A2A result; the policy
-assembles the object in Rust. When non-empty, `responseFields` overrides
-`responseMapping`.
+assembles the object in Rust.
 
 ```yaml
-customResponse: true
+responseType: fields
 responseFields:
   - name: conversationId
     selector: task.contextId

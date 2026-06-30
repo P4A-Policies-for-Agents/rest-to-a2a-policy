@@ -39,21 +39,20 @@
 
 ## Continuation modes
 
-`enableTaskContinuation` (default `true`) is the master switch. When `false`, the
-policy forces continuation to `none` regardless of `continuationMode`: no storage
-is built, no ids are carried, every call is single-shot, and the continuation
-properties (`continuationMode` and the selectors) are ignored. The override is
-applied in `config_map` (the enum string is still
-parsed first, so a malformed `continuationMode` is reported even when disabled).
-When `true`, `continuationMode` selects:
+`continuationMode` is an enum with three values (`cache`, `explicit`, `none`,
+default `cache`). It controls how multi-turn A2A task continuation is handled:
 
 - **`cache`** — `contextKeySelector` yields a conversation value → SHA-256 →
   cache key. On read, a continuable entry injects `contextId`+`taskId`. On
   response, continuable states upsert, terminal states evict. Gossip-safe
-  (no DELETE-before-recreate; TTL eviction on remote).
+  (no DELETE-before-recreate; TTL eviction on remote). The API Manager UI shows
+  `contextKeySelector`, `distributed`, and `conversationTtlSeconds` only when
+  this mode is selected (via `@visibleOn`).
 - **`explicit`** — `taskIdSelector` / `contextIdSelector` provide the ids; the
-  cache is never touched.
-- **`none`** — single-shot.
+  cache is never touched. The API Manager UI shows the selector fields only when
+  this mode is selected.
+- **`none`** — single-shot. No cache, no ids carried forward, every call is
+  independent.
 
 ## Upstream routing (in-band, no `:path` rewrite)
 
@@ -97,8 +96,8 @@ To return a custom-shaped REST body despite the construction constraint above,
 `responseFields` moves the object construction into the policy. Each entry is an
 output `name` plus a `selector`; the policy resolves every selector against the
 raw A2A result and assembles the object in Rust (`src/response_build.rs`).
-`responseFields` applies only when `customResponse` is `true`; when it is and the
-list is non-empty, it **overrides** `responseMapping`.
+`responseFields` applies only when `responseType = fields`; the mode is selected
+explicitly via the `responseType` enum.
 
 The per-field `selector` is a **plain dotted JSON path**, not DataWeave. This is
 forced by a second, distinct runtime constraint: the gateway's `dw2pel` config
@@ -120,17 +119,30 @@ JSON numbers as doubles; path selection preserves the original token.
 
 ## Response-shaping escape hatches
 
-Two distinct mechanisms reshape the upstream A2A response into the REST body the
-caller expects. They are complementary; pick by how much transformation power you
-need.
+Three mechanisms shape the upstream A2A response into the REST body the caller
+expects. They are complementary; pick by how much transformation power you need.
 
-1. **`responseFields` — in-policy (this policy).** Assemble a flat/nested envelope
-   from dotted JSON-path selections of the raw A2A result, resolved in Rust (see
-   the section above). Pure selection: no conditionals, computed values, or
-   expression logic. Overrides `responseMapping` when non-empty. Use this for the
-   common case (flatten a sub-tree into `conversationId`/`taskRef`/`reply`).
+1. **`responseType: raw` (default) — byte-faithful passthrough.** The upstream A2A
+   body is returned verbatim. The response body is never re-read or rewritten and
+   the upstream headers (`content-type`, `content-length`) pass through unchanged.
+   This is **byte-faithful** — unlike `responseMapping: "#[payload]"`, which
+   round-trips through the policy's JSON shaping and re-serializes JSON numbers as
+   doubles (`-32602` → `-32602.0`). Pinned by the
+   `raw_response_is_default_and_byte_faithful` integration test. The continuation
+   cache still runs in this mode (it reads the parsed result independently); only
+   REST-body shaping is skipped.
 
-2. **Operator-chained DataWeave Body Transformation — out-of-policy.** When you
+2. **`responseType: fields` — in-policy (this policy).** Assemble a flat/nested
+   envelope from dotted JSON-path selections of the raw A2A result, resolved in
+   Rust (see the section above). Pure selection: no conditionals, computed values,
+   or expression logic. Use this for the common case (flatten a sub-tree into
+   `conversationId`/`taskRef`/`reply`).
+
+3. **`responseType: mapping` — in-policy DataWeave selector.** `responseMapping`
+   runs against the raw A2A result object. Selection-only (see runtime constraint
+   above).
+
+4. **Operator-chained DataWeave Body Transformation — out-of-policy.** When you
    need full DataWeave construction on the upstream response (conditionals,
    `map`/`filter`, computed fields, object/array building), attach MuleSoft's
    built-in **DataWeave Body Transformation** policy *after* `rest-to-a2a` on the
@@ -153,22 +165,13 @@ need.
    This is the documented workaround for the construction constraint above — the
    in-policy DataWeave cannot build objects, but the operator-chained policy can.
 
-### `customResponse` — raw vs shaped (master switch)
+### `responseType` — raw vs shaped (mode selector)
 
-`customResponse` (default `false`) governs whether the response is shaped at all:
+`responseType` (enum, default `raw`) governs how the response is shaped:
 
-- **`false` (default) — raw passthrough.** The upstream A2A body is returned
-  **verbatim**: the response body is never re-read or rewritten and the upstream
-  headers (`content-type`, `content-length`) pass through unchanged. This is
-  **byte-faithful** — unlike `responseMapping: "#[payload]"`, which round-trips
-  through the policy's JSON shaping and re-serializes JSON numbers as doubles
-  (`-32602` → `-32602.0`). Pinned by the
-  `raw_response_is_default_and_byte_faithful` integration test. The continuation
-  cache still runs in this mode (it reads the parsed result independently); only
-  REST-body shaping is skipped.
-- **`true` — shaped.** `responseFields` (if non-empty) takes precedence,
-  otherwise `responseMapping` is evaluated. Both shaping properties are ignored
-  when `customResponse` is off.
+- **`raw` (default)** — verbatim passthrough (see above).
+- **`mapping`** — shape via `responseMapping` (API Manager shows that field).
+- **`fields`** — assemble via `responseFields` (API Manager shows that field).
 
 Implemented in `response_filter` via `PolicyConfig::uses_raw_response()` /
 `uses_response_fields()`; the raw branch returns before any body read/rewrite.
@@ -189,9 +192,9 @@ test.
 
 - Prompt extraction null/empty/error → **fail-closed**: caller gets
   `requestErrorStatus` (default 400); upstream is not called.
-- `customResponse:false` (default) → raw passthrough: the upstream body is
-  returned verbatim; no shaping is attempted, so there is nothing to fail.
-- Response DataWeave error (`responseMapping` path, shaping on) → **non-fatal**:
-  the raw A2A body passes through and a warning is logged.
-- `responseFields` selector that resolves to nothing → **non-fatal**: that field
-  is set to `null`; other fields are unaffected.
+- `responseType: raw` (default) → raw passthrough: the upstream body is returned
+  verbatim; no shaping is attempted, so there is nothing to fail.
+- Response DataWeave error (`responseMapping` path, `responseType: mapping`) →
+  **non-fatal**: the raw A2A body passes through and a warning is logged.
+- `responseFields` selector that resolves to nothing (`responseType: fields`) →
+  **non-fatal**: that field is set to `null`; other fields are unaffected.
