@@ -16,6 +16,8 @@
 //! (`"working"`, `"user"`) are NOT emitted or accepted — this policy is
 //! v1.0-only (see `docs/spec.md`).
 
+use std::fmt::Write as _;
+
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -239,7 +241,7 @@ pub fn generate_message_id(seed: &[u8]) -> String {
     let digest = Sha256::digest(seed);
     let mut out = String::with_capacity(32);
     for byte in digest.iter().take(16) {
-        out.push_str(&format!("{byte:02x}"));
+        let _ = write!(out, "{byte:02x}");
     }
     out
 }

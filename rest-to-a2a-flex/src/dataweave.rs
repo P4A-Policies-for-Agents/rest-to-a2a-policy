@@ -27,7 +27,10 @@ pub fn value_to_string(value: Value) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(s)
+                // Return the trimmed form: surrounding whitespace in a
+                // conversation key or A2A id would otherwise hash/compare
+                // differently and silently miss a continuation.
+                Some(trimmed.to_string())
             }
         }
         Value::Number(n) => Some(format_number(n)),
@@ -66,6 +69,11 @@ mod tests {
         );
         assert_eq!(value_to_string(Value::String("   ".into())), None);
         assert_eq!(value_to_string(Value::String("".into())), None);
+        // Surrounding whitespace is stripped so keys/ids compare cleanly.
+        assert_eq!(
+            value_to_string(Value::String("  conv-1\n".into())),
+            Some("conv-1".into())
+        );
     }
 
     #[test]

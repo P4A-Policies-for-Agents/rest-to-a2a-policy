@@ -116,9 +116,9 @@ impl PolicyConfig {
             send_configuration,
             distributed: config.distributed,
             // Schema constrains these ranges (ttl 60..=86400, status 400..=599);
-            // clamp defensively in case the bounds are ever loosened.
-            conversation_ttl_seconds: config.conversation_ttl_seconds.clamp(1, u32::MAX as i64)
-                as u32,
+            // clamp defensively to the same bounds in case the schema is ever
+            // loosened — a sub-minute TTL would thrash the conversation cache.
+            conversation_ttl_seconds: config.conversation_ttl_seconds.clamp(60, 86400) as u32,
             request_error_status: config.request_error_status.clamp(400, 599) as u32,
         })
     }

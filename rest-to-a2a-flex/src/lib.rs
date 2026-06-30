@@ -48,6 +48,13 @@ use crate::continuation::{
 use crate::dataweave::{value_to_json, value_to_string};
 use crate::generated::config::Config;
 
+/// HTTP header name for the body content type.
+const CONTENT_TYPE: &str = "content-type";
+/// HTTP header name for the (stale, post-rewrite) body length.
+const CONTENT_LENGTH: &str = "content-length";
+/// JSON media type set on every rewritten body.
+const APPLICATION_JSON: &str = "application/json";
+
 /// Per-request context threaded from the request filter to the response filter.
 /// `None` (via `RequestData`) means the request was short-circuited before a
 /// send was framed (fail-closed) — the response filter then does nothing.
@@ -161,10 +168,10 @@ async fn request_filter<S: DataStorage>(
     // below for both bindings, so set JSON content-type and drop the stale
     // content-length now. Harmless if the request is later rejected (the Break
     // response is independent).
-    headers_state.handler().remove_header("content-length");
+    headers_state.handler().remove_header(CONTENT_LENGTH);
     headers_state
         .handler()
-        .set_header("content-type", "application/json");
+        .set_header(CONTENT_TYPE, APPLICATION_JSON);
 
     // Transition to the body and bind the payload to each evaluator.
     let body_state = headers_state.into_body_state().await;
@@ -188,7 +195,10 @@ async fn request_filter<S: DataStorage>(
             logger::warn!("rest-to-a2a: prompt selector yielded no value — rejecting request");
             return Flow::Break(
                 Response::new(config.request_error_status)
-                    .with_headers(vec![("content-type".to_string(), "application/json".to_string())])
+                    .with_headers(vec![(
+                        CONTENT_TYPE.to_string(),
+                        APPLICATION_JSON.to_string(),
+                    )])
                     .with_body(caller_error_body("missing or invalid prompt")),
             );
         }
@@ -236,7 +246,10 @@ async fn request_filter<S: DataStorage>(
         logger::error!("rest-to-a2a: failed to set request body: {err:?}");
         return Flow::Break(
             Response::new(config.request_error_status)
-                .with_headers(vec![("content-type".to_string(), "application/json".to_string())])
+                .with_headers(vec![(
+                    CONTENT_TYPE.to_string(),
+                    APPLICATION_JSON.to_string(),
+                )])
                 .with_body(caller_error_body("failed to build A2A request")),
         );
     }
@@ -263,7 +276,7 @@ async fn response_filter<S: DataStorage>(
     let headers_state = state.into_headers_state().await;
 
     // Streaming is out of scope: pass an SSE response through untouched.
-    if let Some(content_type) = headers_state.handler().header("content-type") {
+    if let Some(content_type) = headers_state.handler().header(CONTENT_TYPE) {
         if content_type.contains("text/event-stream") {
             logger::warn!(
                 "rest-to-a2a: upstream returned text/event-stream — streaming is not supported, \
@@ -298,10 +311,10 @@ async fn response_filter<S: DataStorage>(
     // left untouched, so the upstream headers (content-type, content-length)
     // pass through verbatim alongside it.
     if !use_raw {
-        headers_state.handler().remove_header("content-length");
+        headers_state.handler().remove_header(CONTENT_LENGTH);
         headers_state
             .handler()
-            .set_header("content-type", "application/json");
+            .set_header(CONTENT_TYPE, APPLICATION_JSON);
     }
 
     let body_state = headers_state.into_body_state().await;
@@ -310,6 +323,14 @@ async fn response_filter<S: DataStorage>(
     // Parse the binding-specific envelope into the raw A2A SendMessageResult.
     let parts = config.binding.parse_response(&raw);
     let result_value = parts.result.clone();
+
+    // Surface a binding-native upstream error for observability. This is not
+    // fatal: the body still flows back to the caller (shaped or raw) so the
+    // operator's response logic can act on it, but a silent JSON-RPC in-band
+    // error or HTTP+JSON `google.rpc.Status` would otherwise be invisible.
+    if let Some(error) = &parts.error {
+        logger::warn!("rest-to-a2a: upstream A2A returned an error envelope: {error}");
+    }
 
     // Continuation persistence (cache mode only — `cache_key` present).
     if let (Some(result), Some(storage)) = (&result_value, &storage) {

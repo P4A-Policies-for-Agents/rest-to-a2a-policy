@@ -21,7 +21,10 @@
 //! The cache value is hashed before it becomes a key (no raw conversation id
 //! at rest), and the entry stores no prompt text — only ids + lifecycle state.
 
+use std::fmt::Write as _;
+
 use pdk::data_storage::{DataStorage, DataStorageError, StoreMode};
+use pdk::logger;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -46,11 +49,12 @@ impl CacheKey {
     /// reveals nothing about the value.
     pub fn from_hashed(conversation_value: &str) -> Self {
         let digest = Sha256::digest(conversation_value.as_bytes());
-        let mut hex = String::with_capacity(64);
+        let mut hex = String::with_capacity(KEY_PREFIX.len() + 64);
+        hex.push_str(KEY_PREFIX);
         for byte in digest.iter() {
-            hex.push_str(&format!("{byte:02x}"));
+            let _ = write!(hex, "{byte:02x}");
         }
-        Self(format!("{KEY_PREFIX}{hex}"))
+        Self(hex)
     }
 
     pub fn as_str(&self) -> &str {
@@ -238,6 +242,10 @@ impl<'a, S: DataStorage> ConversationStore<'a, S> {
                 Err(other) => return Err(other.into()),
             }
         }
+        logger::warn!(
+            "rest-to-a2a: cache upsert exhausted {CAS_MAX_RETRIES} CAS retries for a contended \
+             conversation key — abandoned (next turn re-reads and retries)"
+        );
         Err(CacheError::CasConflict)
     }
 
@@ -276,6 +284,10 @@ impl<'a, S: DataStorage> ConversationStore<'a, S> {
                 Err(other) => return Err(other.into()),
             }
         }
+        logger::warn!(
+            "rest-to-a2a: cache evict exhausted {CAS_MAX_RETRIES} CAS retries for a contended \
+             conversation key — tombstone not written (TTL will reclaim the entry)"
+        );
         Err(CacheError::CasConflict)
     }
 }

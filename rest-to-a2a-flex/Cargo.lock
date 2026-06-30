@@ -3347,7 +3347,6 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "httpmock",
- "mime",
  "pdk",
  "pdk-test",
  "pdk-unit",
