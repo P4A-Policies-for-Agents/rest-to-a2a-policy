@@ -34,9 +34,13 @@ pub struct Config {
     #[serde(alias = "responseType", default = "default_response_type")]
     pub response_type: String,
 
-    /// Response-shaping settings, grouped under `responseConfig`.
-    #[serde(alias = "responseConfig", default)]
-    pub response_config: Option<ResponseConfig>,
+    /// Mapping-mode response shaping, grouped under `mappingConfig`.
+    #[serde(alias = "mappingConfig", default)]
+    pub mapping_config: Option<MappingConfig>,
+
+    /// Fields-mode response shaping, grouped under `fieldsConfig`.
+    #[serde(alias = "fieldsConfig", default)]
+    pub fields_config: Option<FieldsConfig>,
 
     #[serde(alias = "a2aConfiguration")]
     pub a2a_configuration: Option<A2aConfiguration>,
@@ -92,16 +96,20 @@ pub struct ExplicitConfig {
     pub context_id_selector: Option<pdk::script::Script>,
 }
 
-/// Response-shaping group (`responseConfig` object in the schema).
+/// Mapping-mode response-shaping group (`mappingConfig` object in the schema).
 #[derive(Deserialize, Clone, Debug, Default)]
-pub struct ResponseConfig {
+pub struct MappingConfig {
     #[serde(
         alias = "responseMapping",
         default,
         deserialize_with = "de_optional_selector"
     )]
     pub response_mapping: Option<pdk::script::Script>,
+}
 
+/// Fields-mode response-shaping group (`fieldsConfig` object in the schema).
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct FieldsConfig {
     #[serde(alias = "responseFields", default)]
     pub response_fields: Vec<ResponseField>,
 }

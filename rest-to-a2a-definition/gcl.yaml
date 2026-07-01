@@ -185,22 +185,21 @@ spec:
         - mapping
         - fields
       default: raw
-    responseConfig:
+    mappingConfig:
       type: object
-      title: Response Shaping (responseType = mapping or fields)
+      title: Response Mapping (responseType = mapping)
       description: >
-        How the upstream A2A result is shaped for the caller. `responseMapping`
-        applies when `responseType=mapping`; `responseFields` applies when
-        `responseType=fields`. Both are ignored when `responseType=raw`.
+        Shape the response with a DataWeave expression. Used only when
+        `responseType=mapping`; ignored otherwise.
       properties:
         responseMapping:
           type: string
           title: Response Mapping (DataWeave)
           description: >
-            Used only when Response Type is `mapping`. DataWeave expression run
-            against the raw A2A result object (the Task or Message) to shape the
-            REST response body. On error (or when empty) the raw A2A body is passed
-            through unchanged (non-fatal) and a warning is logged. Example:
+            DataWeave expression run against the raw A2A result object (the Task or
+            Message) to shape the REST response body. On error (or when empty) the
+            raw A2A body is passed through unchanged (non-fatal) and a warning is
+            logged. Example:
             `#[payload.message.parts[0].text default payload.task.status.update.parts[0].text]`.
           format: dataweave
           bindings:
@@ -209,19 +208,25 @@ spec:
             attributes: true
             authentication: false
             vars: []
+    fieldsConfig:
+      type: object
+      title: Response Fields (responseType = fields)
+      description: >
+        Build the response from dotted-path selectors. Used only when
+        `responseType=fields`; ignored otherwise.
+      properties:
         responseFields:
           type: array
           title: Response Fields (path selectors)
           description: >
-            Used only when Response Type is `fields`. Build the REST response from
-            dotted-path selections of the raw A2A result; the policy assembles the
-            object. Use this to produce a flat/custom envelope: the gateway's
-            embedded DataWeave rejects object construction inside a single
-            expression, so reshaping is expressed as a list of selections here. Each
-            `selector` is a plain JSON path (NOT DataWeave) — the gateway does not
-            compile DataWeave nested inside array items. An output `name` may be
-            dotted (e.g. `data.taskRef`) to nest. Conditionals and computed values
-            are out of scope.
+            Build the REST response from dotted-path selections of the raw A2A
+            result; the policy assembles the object. Use this to produce a
+            flat/custom envelope: the gateway's embedded DataWeave rejects object
+            construction inside a single expression, so reshaping is expressed as a
+            list of selections here. Each `selector` is a plain JSON path (NOT
+            DataWeave) — the gateway does not compile DataWeave nested inside array
+            items. An output `name` may be dotted (e.g. `data.taskRef`) to nest.
+            Conditionals and computed values are out of scope.
           default: []
           items:
             type: object

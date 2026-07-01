@@ -24,7 +24,7 @@ spec:
         promptSelector: "#[payload.prompt]"
         continuationMode: none
         responseType: mapping
-        responseConfig:
+        mappingConfig:
           responseMapping: "#[payload.message.parts[0].text default
             payload.task.status.update.parts[0].text]"
         a2aConfiguration:

@@ -143,7 +143,8 @@ impl PolicyConfig {
         // schema defaults apply.
         let cache = config.cache_config.unwrap_or_default();
         let explicit = config.explicit_config.unwrap_or_default();
-        let response = config.response_config.unwrap_or_default();
+        let mapping = config.mapping_config.unwrap_or_default();
+        let fields = config.fields_config.unwrap_or_default();
 
         Ok(Self {
             binding,
@@ -153,8 +154,8 @@ impl PolicyConfig {
             task_id_selector: explicit.task_id_selector,
             context_id_selector: explicit.context_id_selector,
             response_type,
-            response_mapping: response.response_mapping,
-            response_fields: response.response_fields,
+            response_mapping: mapping.response_mapping,
+            response_fields: fields.response_fields,
             metadata_selector: config.metadata_selector,
             send_configuration,
             distributed: cache.distributed,
