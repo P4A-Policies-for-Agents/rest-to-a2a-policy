@@ -138,9 +138,21 @@ spec:
         acceptedOutputModes:
           type: array
           title: Accepted Output Modes
-          description: MIME types the agent may use for output (e.g. text/plain).
+          description: >
+            MIME types the agent may use for output, sent as the A2A
+            `acceptedOutputModes`. Select one or more; an empty list sends none
+            (the agent chooses).
+          uniqueItems: true
           items:
             type: string
+            enum:
+              - text/plain
+              - text/markdown
+              - text/html
+              - application/json
+              - image/png
+              - image/jpeg
+              - application/pdf
         blocking:
           type: boolean
           title: Blocking
