@@ -76,45 +76,46 @@ setting.
 
 | Mode | Who supplies the ids | Cache used |
 |---|---|---|
-| `cache` (default) | the policy, keyed by `contextKeySelector` | yes |
+| `none` (default) | nobody (single-shot) | no |
+| `cache` | the policy, keyed by `contextKeySelector` | yes |
 | `explicit` | the client, via `taskIdSelector`/`contextIdSelector` | no |
-| `none` | nobody (single-shot) | no |
 
-**Cache mode** — the most common. A conversation key is hashed (SHA-256) into the
-cache key; the raw value is never stored.
+Mode-specific selectors are grouped into config objects: `cacheConfig` for cache
+mode, `explicitConfig` for explicit mode. Each group applies only in its mode.
 
-```yaml
-continuationMode: cache
-contextKeySelector: "#[payload.sessionId]"        # body field
-# or from a header set by the channel:
-# contextKeySelector: "#[attributes.headers['x-conversation-id']]"
-distributed: false            # true only on a multi-replica gateway (see spec.md)
-conversationTtlSeconds: 3600
-```
-
-Same `sessionId` resumes an `input-required` task; the caller never sees the A2A
-`taskId`/`contextId`. The API Manager UI shows `contextKeySelector`, `distributed`,
-and `conversationTtlSeconds` only when `continuationMode = cache`.
-
-**Explicit mode** — the client manages the ids itself.
-
-```yaml
-continuationMode: explicit
-taskIdSelector: "#[payload.taskId]"
-contextIdSelector: "#[payload.contextId]"
-```
-
-The API Manager UI shows `taskIdSelector` and `contextIdSelector` only when
-`continuationMode = explicit`. Both are required fields with default `#[null]`.
-Return null (the default) for a fresh task/context.
-
-**None mode** — stateless, one-shot calls.
+**None mode (default)** — stateless, one-shot calls. No cache, no ids carried,
+every call is independent.
 
 ```yaml
 continuationMode: none
 ```
 
-No cache, no ids carried, every call is independent.
+**Cache mode** — a conversation key is hashed (SHA-256) into the cache key; the
+raw value is never stored.
+
+```yaml
+continuationMode: cache
+cacheConfig:
+  contextKeySelector: "#[payload.sessionId]"        # body field
+  # or from a header set by the channel:
+  # contextKeySelector: "#[attributes.headers['x-conversation-id']]"
+  distributed: false          # true only on a multi-replica gateway (see spec.md)
+  conversationTtlSeconds: 3600
+```
+
+Same `sessionId` resumes an `input-required` task; the caller never sees the A2A
+`taskId`/`contextId`.
+
+**Explicit mode** — the client manages the ids itself.
+
+```yaml
+continuationMode: explicit
+explicitConfig:
+  taskIdSelector: "#[payload.taskId]"
+  contextIdSelector: "#[payload.contextId]"
+```
+
+Leave a selector empty for a fresh task/context.
 
 ---
 
@@ -138,35 +139,40 @@ stays an integer). Use it when the caller is happy to consume the raw A2A
 
 ```yaml
 responseType: mapping
-responseMapping: "#[payload.task]"     # return just the Task object
+mappingConfig:
+  responseMapping: "#[payload.artifacts[0].parts[0].text]"   # completed-task text
 ```
 
-`responseMapping` runs against the **raw A2A result object**. It is
+`responseMapping` runs against the **raw A2A result object** — the Task/Message
+itself, so paths are relative to it (no `task`/`message` prefix). It is
 **selection-only**: the gateway's embedded DataWeave rejects object construction
-(`#[{ id: payload.task.id }]` and `%dw 2.0 … --- {…}` both fail and fall back to
-raw passthrough). So you can pick a sub-tree (`#[payload.task]`,
-`#[payload.task.status.state]`) but you cannot build a new shape here. On error
-the raw body passes through (non-fatal). API Manager shows `responseMapping` only
-when `responseType = mapping`.
+(`#[{ text: payload.artifacts[0].parts[0].text }]` and `%dw 2.0 … --- {…}` both
+fail and fall back to raw passthrough). So you can pick a sub-tree
+(`#[payload.artifacts[0].parts[0].text]`, `#[payload.status.state]`) but you cannot
+build a new shape here. On error the raw body passes through (non-fatal).
+`responseMapping` lives in the `mappingConfig` object.
 
 ### 5.3 Build a custom envelope with `responseFields`
 
 To return a **bespoke flat/nested** body, set `responseType: fields` and list the
 output fields. Each is an output `name` plus a dotted-path `selector` into the raw
-A2A result; the policy assembles the object in Rust. API Manager shows
-`responseFields` only when `responseType = fields`.
+A2A result; the policy assembles the object in Rust. `responseFields` lives in the
+`fieldsConfig` object.
 
 ```yaml
 responseType: fields
-responseFields:
-  - name: conversationId
-    selector: task.contextId
-  - name: taskRef
-    selector: task.id
-  - name: status
-    selector: task.status.state
-  - name: reply
-    selector: task.status.update.parts[0].text   # array indices supported
+fieldsConfig:
+  responseFields:
+    - name: conversationId
+      selector: contextId
+    - name: taskRef
+      selector: id
+    - name: status
+      selector: status.state
+    - name: reply
+      selector: status.message.parts[0].text   # array indices supported
+    # completed-task output lives under artifacts instead:
+    # selector: artifacts[0].parts[0].text
 ```
 
 For an A2A `input-required` task this yields:
@@ -241,14 +247,16 @@ it twice if you need to transform both legs.
 
 ### 6.3 Example transformation (operator-authored, in the chained policy)
 
-Given the raw A2A result this policy surfaces:
+Given the raw A2A result this policy surfaces (JSON-RPC binding — the Task is the
+`result` object; note there is no `result.task` wrapper):
 
 ```json
-{ "jsonrpc": "2.0", "id": 1, "result": { "task": {
+{ "jsonrpc": "2.0", "id": "abc123", "result": {
     "id": "task-42", "contextId": "ctx-7",
     "status": { "state": "TASK_STATE_INPUT_REQUIRED",
-                "update": { "role": "ROLE_AGENT",
-                            "parts": [{ "text": "What is your order number?" }] } } } } }
+                "message": { "role": "ROLE_AGENT",
+                             "parts": [{ "text": "What is your order number?" }] } },
+    "artifacts": [{ "parts": [{ "text": "Hi, I am a mock agent." }] }] } }
 ```
 
 a DataWeave Body Transformation (`requestFlow: onResponse`) can build a fully
@@ -259,13 +267,14 @@ custom response with logic the in-policy options cannot express:
 output application/json
 ---
 {
-  conversationId: payload.result.task.contextId,
-  done: payload.result.task.status.state as String
+  conversationId: payload.result.contextId,
+  done: payload.result.status.state as String
           startsWith "TASK_STATE_COMPLETED",
-  needsInput: payload.result.task.status.state == "TASK_STATE_INPUT_REQUIRED",
-  messages: payload.result.task.status.update.parts map ((p) -> p.text),
+  needsInput: payload.result.status.state == "TASK_STATE_INPUT_REQUIRED",
   // conditional / computed fields, defaults, etc. all work here
-  reply: payload.result.task.status.update.parts[0].text default "(no reply)"
+  reply: payload.result.artifacts[0].parts[0].text
+           default payload.result.status.message.parts[0].text
+           default "(no reply)"
 }
 ```
 
@@ -288,21 +297,23 @@ output application/json
 ```yaml
 upstreamBinding: jsonrpc
 continuationMode: cache
-contextKeySelector: "#[payload.sessionId]"
-distributed: false
-conversationTtlSeconds: 3600
+cacheConfig:
+  contextKeySelector: "#[payload.sessionId]"
+  distributed: false
+  conversationTtlSeconds: 3600
 promptSelector: "#[payload.question]"
 metadataSelector: "#[{userId: payload.userId, sessionId: payload.sessionId}]"
 responseType: fields
-responseFields:
-  - name: conversationId
-    selector: task.contextId
-  - name: taskRef
-    selector: task.id
-  - name: status
-    selector: task.status.state
-  - name: reply
-    selector: task.status.update.parts[0].text
+fieldsConfig:
+  responseFields:
+    - name: conversationId
+      selector: contextId
+    - name: taskRef
+      selector: id
+    - name: status
+      selector: status.state
+    - name: reply
+      selector: artifacts[0].parts[0].text
 requestErrorStatus: 400
 ```
 
@@ -321,10 +332,12 @@ requestErrorStatus: 400
 ```yaml
 upstreamBinding: httpjson          # operator sets destinationPath: /message:send
 continuationMode: cache
-contextKeySelector: "#[attributes.headers['x-conversation-id']]"
+cacheConfig:
+  contextKeySelector: "#[attributes.headers['x-conversation-id']]"
 promptSelector: "#[payload.prompt]"
 responseType: mapping
-responseMapping: "#[payload.task]"
+mappingConfig:
+  responseMapping: "#[payload.artifacts[0].parts[0].text]"
 requestErrorStatus: 400
 ```
 
@@ -334,8 +347,9 @@ requestErrorStatus: 400
 # rest-to-a2a: pass the raw A2A result downstream for full DataWeave transformation.
 upstreamBinding: jsonrpc
 continuationMode: explicit
-taskIdSelector: "#[payload.taskId]"
-contextIdSelector: "#[payload.contextId]"
+explicitConfig:
+  taskIdSelector: "#[payload.taskId]"
+  contextIdSelector: "#[payload.contextId]"
 promptSelector: "#[payload.prompt]"
 responseType: raw
 requestErrorStatus: 400

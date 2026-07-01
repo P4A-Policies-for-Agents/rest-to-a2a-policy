@@ -75,10 +75,12 @@ components:
           additionalProperties: true
           example: { "channel": "web", "locale": "en-US" }
     AskResponse:
-      # The response IS the A2A v1.0 Task object, selected out of the upstream
-      # envelope by `responseMapping: #[payload.task]`. See the note under
-      # "DataWeave selectors explained" on why the mapping is a *selection*, not
-      # a constructed object.
+      # The response IS the A2A v1.0 Task object itself — the JSON-RPC `result`
+      # unwrapped, returned as-is by `mappingConfig.responseMapping: #[payload]`
+      # (or shaped with `fieldsConfig.responseFields`). Paths are relative to the
+      # Task; there is no `task`/`message` wrapper. See the note under "DataWeave
+      # selectors explained" on why the mapping is a *selection*, not a
+      # constructed object.
       type: object
       properties:
         id:
@@ -97,9 +99,12 @@ components:
               type: string
               description: A2A task state (proto-JSON, e.g. TASK_STATE_INPUT_REQUIRED).
               example: "TASK_STATE_INPUT_REQUIRED"
-            update:
+            message:
               type: object
-              description: The agent's latest message (role + parts), when present.
+              description: The agent's latest message (role + parts) on an input-required task.
+        artifacts:
+          type: array
+          description: Agent output on a completed task; text at artifacts[0].parts[0].text.
     ErrorResponse:
       type: object
       properties:
@@ -126,7 +131,7 @@ Content-Type: application/json
 
 ### Example response (task asks for more input)
 
-The body is the selected A2A `task` object:
+The body is the A2A Task object itself (the JSON-RPC `result` unwrapped):
 
 ```json
 {
@@ -134,7 +139,7 @@ The body is the selected A2A `task` object:
   "contextId": "ctx-7",
   "status": {
     "state": "TASK_STATE_INPUT_REQUIRED",
-    "update": {
+    "message": {
       "role": "ROLE_AGENT",
       "parts": [{ "text": "Sure — what is your order number?" }]
     }
@@ -147,13 +152,15 @@ The body is the selected A2A `task` object:
 ```yaml
 upstreamBinding: jsonrpc
 continuationMode: cache
-distributed: false
-conversationTtlSeconds: 3600
+cacheConfig:
+  contextKeySelector: "#[payload.sessionId]"
+  distributed: false
+  conversationTtlSeconds: 3600
 requestErrorStatus: 400
 promptSelector: "#[payload.question]"
-contextKeySelector: "#[payload.sessionId]"
 responseType: mapping
-responseMapping: "#[payload.task]"
+mappingConfig:
+  responseMapping: "#[payload]"
 metadataSelector: "#[{userId: payload.userId, channel: payload.metadata.channel}]"
 ```
 
@@ -162,22 +169,24 @@ metadataSelector: "#[{userId: payload.userId, channel: payload.metadata.channel}
 | Selector | Expression | Runs against | Produces |
 |---|---|---|---|
 | `promptSelector` | `#[payload.question]` | inbound REST body | the prompt string for the A2A message part. Null/empty ⇒ **fail-closed 400**. |
-| `contextKeySelector` | `#[payload.sessionId]` | inbound REST body | the conversation value → SHA-256 → cache key. Same `sessionId` resumes the task. |
+| `contextKeySelector` (in `cacheConfig`) | `#[payload.sessionId]` | inbound REST body | the conversation value → SHA-256 → cache key. Same `sessionId` resumes the task. |
 | `metadataSelector` | `#[{userId: payload.userId, channel: payload.metadata.channel}]` | inbound REST body | object of key/value pairs attached to the A2A message as `metadata`. A null/non-object result attaches nothing. |
-| `responseMapping` | `#[payload.task]` | **raw A2A result** (`{"task": {...}}`) | the `AskResponse` body — the selected `task` object. |
+| `responseMapping` (in `mappingConfig`) | `#[payload]` | **raw A2A result** (the Task itself) | the `AskResponse` body — the whole Task object. A sub-tree selection like `#[payload.artifacts[0].parts[0].text]` returns just that value. |
 
-The response mapping binds `payload` to the raw A2A `SendMessageResult` and
-**selects** the `task` arm as the REST response. A mapping error is
+The response mapping binds `payload` to the raw A2A result — the Task (or
+Message) itself, i.e. the JSON-RPC `result` unwrapped (no `task`/`message`
+wrapper) — and **selects** a sub-tree as the REST response. A mapping error is
 **non-fatal** — the raw A2A body passes through with a warning.
 
 > **Selection only — object construction is not supported.** The Flex Gateway
 > 1.12.1 embedded DataWeave used for policy `dataweave`-format properties
-> evaluates **selectors** (`#[payload.task]`, `#[payload.task.status.state]`)
-> but **rejects object/array construction** (`#[{ a: payload.x }]`, the full
-> `%dw 2.0 … --- {…}` script form, and `default`/index-chain reshaping). A
-> construction expression silently fails at eval and the policy falls back to
-> non-fatal raw passthrough (the unmodified upstream body is returned). This was
-> verified end-to-end against the live runtime (see the `rest_spec_*` and
+> evaluates **selectors** (`#[payload]`, `#[payload.artifacts[0].parts[0].text]`,
+> `#[payload.status.state]`) but **rejects object/array construction**
+> (`#[{ a: payload.x }]`, the full `%dw 2.0 … --- {…}` script form, and
+> `default`/index-chain reshaping). A construction expression silently fails at
+> eval and the policy falls back to non-fatal raw passthrough (the unmodified
+> upstream body is returned). This was verified end-to-end against the live
+> runtime (see the `rest_spec_*` and
 > `response_mapping_failure_passes_raw_body_through` integration tests). To
 > reshape into a flat custom envelope (`conversationId`/`taskRef`/`reply`), use
 > `responseFields` (below) — `responseMapping` itself is restricted to selecting
@@ -185,22 +194,26 @@ The response mapping binds `payload` to the raw A2A `SendMessageResult` and
 
 ### Custom envelope with `responseFields`
 
-To return a bespoke flat (or nested) shape instead of the raw `task`, set
-`responseType: fields` and use `responseFields`. Each entry is an output `name`
-plus a **dotted JSON-path** `selector` into the raw A2A result; the policy
+To return a bespoke flat (or nested) shape instead of the raw Task, set
+`responseType: fields` and use `responseFields` (in the `fieldsConfig` object).
+Each entry is an output `name` plus a **dotted JSON-path** `selector` into the
+raw A2A result (relative to the Task — no `task`/`message` prefix); the policy
 assembles the object in Rust.
 
 ```yaml
 responseType: fields
-responseFields:
-  - name: conversationId
-    selector: task.contextId
-  - name: taskRef
-    selector: task.id
-  - name: status
-    selector: task.status.state
-  - name: reply
-    selector: task.status.update.parts[0].text
+fieldsConfig:
+  responseFields:
+    - name: conversationId
+      selector: contextId
+    - name: taskRef
+      selector: id
+    - name: status
+      selector: status.state
+    - name: reply
+      selector: status.message.parts[0].text   # input-required follow-up
+      # completed-task output lives under artifacts instead:
+      # selector: artifacts[0].parts[0].text
 ```
 
 For the same A2A `input-required` task this returns the flat `AskResponse`:
@@ -247,20 +260,19 @@ What the policy sends (JSON-RPC binding, fresh turn):
 On the next turn for the same `sessionId`, the policy injects the cached ids
 into `params.message.taskId` / `params.message.contextId`.
 
-What the upstream returns (input-required task):
+What the upstream returns (input-required task). The A2A Task **is** the
+JSON-RPC `result` — there is no `result.task` wrapper:
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "task": {
-      "id": "task-42",
-      "contextId": "ctx-7",
-      "status": {
-        "state": "TASK_STATE_INPUT_REQUIRED",
-        "update": { "role": "ROLE_AGENT", "parts": [{ "text": "Sure — what is your order number?" }] }
-      }
+    "id": "task-42",
+    "contextId": "ctx-7",
+    "status": {
+      "state": "TASK_STATE_INPUT_REQUIRED",
+      "message": { "role": "ROLE_AGENT", "parts": [{ "text": "Sure — what is your order number?" }] }
     }
   }
 }
