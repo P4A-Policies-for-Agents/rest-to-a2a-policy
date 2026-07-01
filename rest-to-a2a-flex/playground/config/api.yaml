@@ -25,8 +25,8 @@ spec:
         continuationMode: none
         responseType: mapping
         mappingConfig:
-          responseMapping: "#[payload.message.parts[0].text default
-            payload.task.status.update.parts[0].text]"
+          responseMapping: "#[payload.artifacts[0].parts[0].text default
+            payload.status.message.parts[0].text]"
         a2aConfiguration:
           acceptedOutputModes:
             - text/plain

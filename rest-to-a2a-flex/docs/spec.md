@@ -45,12 +45,11 @@ default `cache`). It controls how multi-turn A2A task continuation is handled:
 - **`cache`** — `contextKeySelector` yields a conversation value → SHA-256 →
   cache key. On read, a continuable entry injects `contextId`+`taskId`. On
   response, continuable states upsert, terminal states evict. Gossip-safe
-  (no DELETE-before-recreate; TTL eviction on remote). The API Manager UI shows
-  `contextKeySelector`, `distributed`, and `conversationTtlSeconds` only when
-  this mode is selected (via `@visibleOn`).
-- **`explicit`** — `taskIdSelector` / `contextIdSelector` provide the ids; the
-  cache is never touched. The API Manager UI shows the selector fields only when
-  this mode is selected.
+  (no DELETE-before-recreate; TTL eviction on remote). `contextKeySelector`,
+  `distributed`, and `conversationTtlSeconds` are grouped in the `cacheConfig`
+  object and apply only in this mode.
+- **`explicit`** — `taskIdSelector` / `contextIdSelector` (grouped in the
+  `explicitConfig` object) provide the ids; the cache is never touched.
 - **`none`** — single-shot. No cache, no ids carried forward, every call is
   independent.
 
@@ -80,8 +79,8 @@ body phase. The evaluator retains bound `attributes` across the transition.
 ## `responseMapping` is selection-only (runtime constraint)
 
 The Flex Gateway 1.12.1 embedded DataWeave used for `dataweave`-format policy
-properties evaluates **selectors** (`#[payload.task]`,
-`#[payload.task.status.state]`, `#[payload]`) but **rejects object/array
+properties evaluates **selectors** (`#[payload.artifacts[0].parts[0].text]`,
+`#[payload.status.state]`, `#[payload]`) but **rejects object/array
 construction** — `#[{ k: payload.x }]`, the full `%dw 2.0 … --- {…}` script
 form, and `default`/index-chain reshaping all fail. A construction expression
 fails at eval and triggers the non-fatal raw-passthrough fallback (the
@@ -89,6 +88,12 @@ unmodified upstream body is returned). Verified end-to-end against the live
 runtime. Therefore `responseMapping` must select a sub-tree of the A2A result;
 flattening into a bespoke envelope is done by `responseFields` (below) rather
 than by `responseMapping`.
+
+The object bound as `payload` is the raw A2A result object itself — the Task (or
+Message), i.e. the JSON-RPC `result` unwrapped — so paths are relative to it with
+no `task`/`message` prefix. A completed task carries the agent's output under
+`artifacts[0].parts[0].text`; an `input-required` task carries the follow-up
+prompt under `status.message.parts[0].text`.
 
 ## `responseFields` — Rust-side response assembly
 
@@ -170,8 +175,8 @@ expects. They are complementary; pick by how much transformation power you need.
 `responseType` (enum, default `raw`) governs how the response is shaped:
 
 - **`raw` (default)** — verbatim passthrough (see above).
-- **`mapping`** — shape via `responseMapping` (API Manager shows that field).
-- **`fields`** — assemble via `responseFields` (API Manager shows that field).
+- **`mapping`** — shape via `responseMapping` (in the `mappingConfig` object).
+- **`fields`** — assemble via `responseFields` (in the `fieldsConfig` object).
 
 Implemented in `response_filter` via `PolicyConfig::uses_raw_response()` /
 `uses_response_fields()`; the raw branch returns before any body read/rewrite.

@@ -199,8 +199,10 @@ spec:
             DataWeave expression run against the raw A2A result object (the Task or
             Message) to shape the REST response body. On error (or when empty) the
             raw A2A body is passed through unchanged (non-fatal) and a warning is
-            logged. Example:
-            `#[payload.message.parts[0].text default payload.task.status.update.parts[0].text]`.
+            logged. The result object is the A2A Task/Message itself, so paths are
+            relative to it (no `task`/`message` prefix). Example — completed task
+            output, falling back to an input-required follow-up prompt:
+            `#[payload.artifacts[0].parts[0].text default payload.status.message.parts[0].text]`.
           format: dataweave
           bindings:
             payload:
@@ -240,9 +242,10 @@ spec:
                 title: Field Path Selector
                 description: >
                   Dotted JSON path into the raw A2A result, e.g.
-                  `task.status.update.parts[0].text`. Array indices are supported. An
-                  optional leading `payload.` is ignored. A path that resolves to
-                  nothing yields a null field.
+                  `artifacts[0].parts[0].text` (completed task output) or
+                  `status.message.parts[0].text` (input-required follow-up). Array
+                  indices are supported. An optional leading `payload.` is ignored.
+                  A path that resolves to nothing yields a null field.
             required:
               - name
               - selector
