@@ -25,7 +25,7 @@ Streaming (SSE) is **not supported**: a `text/event-stream` upstream response is
 |---|---|---|---|
 | `upstreamBinding` | enum `jsonrpc`\|`httpjson` | `jsonrpc` | `jsonrpc`: JSON-RPC 2.0 envelope, method `SendMessage`. `httpjson`: bare A2A payload to `POST /message:send` (operator sets `destinationPath`). |
 | `promptSelector` | DataWeave | `#[payload.prompt]` | Prompt string from the REST request. Fail-closed on null/empty/error. |
-| `continuationMode` | enum `cache`\|`explicit`\|`none` | `cache` | How multi-turn continuation is handled. `cache`: gateway derives cache key from `contextKeySelector` and persists/injects taskId+contextId. `explicit`: client supplies ids via selectors. `none`: single-shot, no continuation. See **Continuation modes** below. Mode-specific fields are grouped into `cacheConfig` / `explicitConfig` objects (see below); each applies only in its mode. |
+| `continuationMode` | enum `none`\|`cache`\|`explicit` | `none` | How multi-turn continuation is handled. `cache`: gateway derives cache key from `contextKeySelector` and persists/injects taskId+contextId. `explicit`: client supplies ids via selectors. `none`: single-shot, no continuation. See **Continuation modes** below. Mode-specific fields are grouped into `cacheConfig` / `explicitConfig` objects (see below); each applies only in its mode. |
 | `contextKeySelector` | DataWeave | — | Under `cacheConfig`. Cache mode only. Conversation value → SHA-256 → cache key. Empty = single-shot. |
 | `taskIdSelector` | DataWeave | — | Under `explicitConfig`. Used when `continuationMode = explicit`. DataWeave expression returning the A2A `taskId` to continue. Leave empty for a fresh task. |
 | `contextIdSelector` | DataWeave | — | Under `explicitConfig`. Used when `continuationMode = explicit`. DataWeave expression returning the A2A `contextId` to continue. Leave empty for a fresh context. |
@@ -42,9 +42,9 @@ Streaming (SSE) is **not supported**: a `text/event-stream` upstream response is
 
 `continuationMode` controls how multi-turn A2A task continuation is handled:
 
-- **`cache` (default)** — `contextKeySelector` yields a conversation value, hashed (SHA-256) into the cache key. A live continuable entry injects `taskId`+`contextId` on the next turn; continuable responses upsert the entry, terminal responses evict it. Gossip-safe (no DELETE-before-recreate; TTL eviction on remote). The raw conversation value is never stored. `contextKeySelector`, `distributed`, and `conversationTtlSeconds` live in the `cacheConfig` object.
+- **`none` (default)** — single-shot; no continuation, no cache, no ids carried forward. Every call is independent.
+- **`cache`** — `contextKeySelector` yields a conversation value, hashed (SHA-256) into the cache key. A live continuable entry injects `taskId`+`contextId` on the next turn; continuable responses upsert the entry, terminal responses evict it. Gossip-safe (no DELETE-before-recreate; TTL eviction on remote). The raw conversation value is never stored. `contextKeySelector`, `distributed`, and `conversationTtlSeconds` live in the `cacheConfig` object.
 - **`explicit`** — the client supplies the ids via `taskIdSelector`/`contextIdSelector` (in the `explicitConfig` object); the cache is never touched.
-- **`none`** — single-shot; no continuation, no cache, no ids carried forward. Every call is independent.
 
 ### Building a custom response
 

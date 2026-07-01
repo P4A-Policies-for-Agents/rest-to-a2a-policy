@@ -143,7 +143,7 @@ fn default_upstream_binding() -> String {
 }
 
 fn default_continuation_mode() -> String {
-    "cache".to_string()
+    "none".to_string()
 }
 
 fn default_distributed() -> bool {

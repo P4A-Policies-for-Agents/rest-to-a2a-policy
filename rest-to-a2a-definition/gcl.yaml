@@ -48,17 +48,17 @@ spec:
       type: string
       title: Continuation Mode
       description: >
-        How multi-turn A2A task continuation is handled. `cache`: the gateway
-        derives a cache key from the Conversation Key Selector and
-        persists/injects contextId+taskId across turns. `explicit`: the client
-        supplies taskId/contextId via the selectors below and nothing is stored.
-        `none`: single-shot — no cache, no taskId/contextId carried forward, every
-        call is independent.
+        How multi-turn A2A task continuation is handled. `none` (default):
+        single-shot — no cache, no taskId/contextId carried forward, every call is
+        independent. `cache`: the gateway derives a cache key from the Conversation
+        Key Selector (in `cacheConfig`) and persists/injects contextId+taskId across
+        turns. `explicit`: the client supplies taskId/contextId via the selectors in
+        `explicitConfig` and nothing is stored.
       enum:
+        - none
         - cache
         - explicit
-        - none
-      default: cache
+      default: none
     cacheConfig:
       type: object
       title: Cache Continuation (continuationMode = cache)

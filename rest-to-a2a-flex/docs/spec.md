@@ -39,9 +39,11 @@
 
 ## Continuation modes
 
-`continuationMode` is an enum with three values (`cache`, `explicit`, `none`,
-default `cache`). It controls how multi-turn A2A task continuation is handled:
+`continuationMode` is an enum with three values (`none`, `cache`, `explicit`,
+default `none`). It controls how multi-turn A2A task continuation is handled:
 
+- **`none`** (default) — single-shot. No cache, no ids carried forward, every
+  call is independent.
 - **`cache`** — `contextKeySelector` yields a conversation value → SHA-256 →
   cache key. On read, a continuable entry injects `contextId`+`taskId`. On
   response, continuable states upsert, terminal states evict. Gossip-safe
@@ -50,8 +52,6 @@ default `cache`). It controls how multi-turn A2A task continuation is handled:
   object and apply only in this mode.
 - **`explicit`** — `taskIdSelector` / `contextIdSelector` (grouped in the
   `explicitConfig` object) provide the ids; the cache is never touched.
-- **`none`** — single-shot. No cache, no ids carried forward, every call is
-  independent.
 
 ## Upstream routing (in-band, no `:path` rewrite)
 
