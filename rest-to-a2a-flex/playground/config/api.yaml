@@ -14,7 +14,7 @@ spec:
       address: "http://backend"
       routes:
         - config:
-            destinationPath: /
+            destinationPath: /anything
   policies:
     - policyRef:
         name: rest-to-a2a-flex-v1-0
@@ -22,17 +22,13 @@ spec:
       config:
         upstreamBinding: jsonrpc
         promptSelector: "#[payload.prompt]"
-        enableTaskContinuation: true
-        continuationMode: cache
-        contextKeySelector: "#[attributes.headers['x-conversation-id']]"
-        taskIdSelector: "#[null]"
-        contextIdSelector: "#[null]"
-        customResponse: true
-        responseMapping: "#[payload]"
+        continuationMode: none
+        responseType: mapping
+        responseConfig:
+          responseMapping: "#[payload.message.parts[0].text default
+            payload.task.status.update.parts[0].text]"
         a2aConfiguration:
           acceptedOutputModes:
             - text/plain
           blocking: true
-        distributed: false
-        conversationTtlSeconds: 3600
         requestErrorStatus: 400

@@ -59,62 +59,77 @@ spec:
         - explicit
         - none
       default: cache
-    contextKeySelector:
-      type: string
-      title: Conversation Key Selector (DataWeave)
+    cacheConfig:
+      type: object
+      title: Cache Continuation (continuationMode = cache)
       description: >
-        Used only when `continuationMode=cache`. DataWeave expression returning a
-        conversation-identifying value (header/field). It is SHA-256 hashed into
-        the cache key. A null/empty result means single-shot (no caching for this
-        call). Leave empty when not using cache mode. Example:
-        `#[payload.conversationId]`.
-      format: dataweave
-      "@rendering":
-        "@visibleOn":
-          - property: continuationMode
-            value: cache
-      bindings:
-        payload:
-          mimeType: json
-        attributes: true
-        authentication: false
-        vars: []
-    taskIdSelector:
-      type: string
-      title: Task ID Selector (DataWeave)
+        Settings used only when `continuationMode=cache`. Ignored in `explicit`
+        and `none` modes.
+      properties:
+        contextKeySelector:
+          type: string
+          title: Conversation Key Selector (DataWeave)
+          description: >
+            DataWeave expression returning a conversation-identifying value
+            (header/field). It is SHA-256 hashed into the cache key. A null/empty
+            result means single-shot (no caching for this call). Example:
+            `#[payload.conversationId]`.
+          format: dataweave
+          bindings:
+            payload:
+              mimeType: json
+            attributes: true
+            authentication: false
+            vars: []
+        distributed:
+          type: boolean
+          title: Distributed Cache
+          description: >
+            When true, the conversation cache uses the gossip-replicated remote
+            store shared across replicas; when false, a local per-replica store.
+          default: false
+        conversationTtlSeconds:
+          type: integer
+          title: Conversation TTL (seconds)
+          description: >
+            Lifetime of a cached conversation entry and the remote namespace TTL.
+          default: 3600
+          minimum: 60
+          maximum: 86400
+    explicitConfig:
+      type: object
+      title: Explicit Continuation (continuationMode = explicit)
       description: >
-        Used when `continuationMode=explicit` (shown in the UI for that mode
-        only). DataWeave expression returning the A2A `taskId` to continue. Leave
-        empty for a fresh task. Example: `#[payload.taskId]`.
-      format: dataweave
-      "@rendering":
-        "@visibleOn":
-          - property: continuationMode
-            value: explicit
-      bindings:
-        payload:
-          mimeType: json
-        attributes: true
-        authentication: false
-        vars: []
-    contextIdSelector:
-      type: string
-      title: Context ID Selector (DataWeave)
-      description: >
-        Used when `continuationMode=explicit` (shown in the UI for that mode
-        only). DataWeave expression returning the A2A `contextId` to continue.
-        Leave empty for a fresh context. Example: `#[payload.contextId]`.
-      format: dataweave
-      "@rendering":
-        "@visibleOn":
-          - property: continuationMode
-            value: explicit
-      bindings:
-        payload:
-          mimeType: json
-        attributes: true
-        authentication: false
-        vars: []
+        Client-supplied continuation ids, used only when
+        `continuationMode=explicit`. Ignored in `cache` and `none` modes. Leave a
+        selector empty for a fresh task/context.
+      properties:
+        taskIdSelector:
+          type: string
+          title: Task ID Selector (DataWeave)
+          description: >
+            DataWeave expression returning the A2A `taskId` to continue. Leave
+            empty for a fresh task. Example: `#[payload.taskId]`.
+          format: dataweave
+          bindings:
+            payload:
+              mimeType: json
+            attributes: true
+            authentication: false
+            vars: []
+        contextIdSelector:
+          type: string
+          title: Context ID Selector (DataWeave)
+          description: >
+            DataWeave expression returning the A2A `contextId` to continue. Leave
+            empty for a fresh context. Example: `#[payload.contextId]`.
+          format: dataweave
+          bindings:
+            payload:
+              mimeType: json
+            attributes: true
+            authentication: false
+            vars: []
     a2aConfiguration:
       type: object
       title: A2A SendMessage Configuration
@@ -139,40 +154,16 @@ spec:
         attached to the A2A message as `metadata`, e.g.
         `#[{tenant: attributes.headers['x-tenant'], traceId: payload.traceId}]`.
         Each value may itself be any DataWeave expression. A null or non-object
-        result (or the default empty object) attaches no metadata.
+        result attaches no metadata. Leave as `#[null]` (the default) to attach
+        none. Example: `#[{tenant: attributes.headers['x-tenant']}]`.
       format: dataweave
-      default: "#[{}]"
+      default: "#[null]"
       bindings:
         payload:
           mimeType: json
         attributes: true
         authentication: false
         vars: []
-    distributed:
-      type: boolean
-      title: Distributed Cache
-      description: >
-        Only relevant when `continuationMode=cache`. When true, the conversation
-        cache uses the gossip-replicated remote store shared across replicas;
-        when false, a local per-replica store is used.
-      default: false
-      "@rendering":
-        "@visibleOn":
-          - property: continuationMode
-            value: cache
-    conversationTtlSeconds:
-      type: integer
-      title: Conversation TTL (seconds)
-      description: >
-        Lifetime of a cached conversation entry and the remote namespace TTL.
-        Only relevant when `continuationMode=cache`.
-      default: 3600
-      minimum: 60
-      maximum: 86400
-      "@rendering":
-        "@visibleOn":
-          - property: continuationMode
-            value: cache
     requestErrorStatus:
       type: integer
       title: Request Error Status
@@ -194,61 +185,62 @@ spec:
         - mapping
         - fields
       default: raw
-    responseMapping:
-      type: string
-      title: Response Mapping (DataWeave)
+    responseConfig:
+      type: object
+      title: Response Shaping (responseType = mapping or fields)
       description: >
-        Used only when Response Type is `mapping`. DataWeave expression run against
-        the raw A2A result object (the Task or Message) to shape the REST response
-        body. On error (or when empty) the raw A2A body is passed through unchanged
-        (non-fatal) and a warning is logged. Example:
-        `#[payload.message.parts[0].text default payload.task.status.update.parts[0].text]`.
-      format: dataweave
-      "@rendering":
-        "@visibleOn":
-          - property: responseType
-            value: mapping
-      bindings:
-        payload:
-          mimeType: json
-        attributes: true
-        authentication: false
-        vars: []
-    responseFields:
-      type: array
-      title: Response Fields (path selectors)
-      description: >
-        Used only when Response Type is `fields`. Build the REST response from
-        dotted-path selections of the raw A2A result; the policy assembles the
-        object. Use this to produce a flat/custom envelope: the gateway's embedded
-        DataWeave rejects object construction inside a single expression, so
-        reshaping is expressed as a list of selections here. Each `selector` is a
-        plain JSON path (NOT DataWeave) — the gateway does not compile DataWeave
-        nested inside array items. An output `name` may be dotted (e.g.
-        `data.taskRef`) to nest. Conditionals and computed values are out of scope.
-      default: []
-      "@rendering":
-        "@visibleOn":
-          - property: responseType
-            value: fields
-      items:
-        type: object
-        properties:
-          name:
-            type: string
-            title: Output Field Name
-            description: Output key; dotted (e.g. `data.taskRef`) builds nested objects.
-          selector:
-            type: string
-            title: Field Path Selector
-            description: >
-              Dotted JSON path into the raw A2A result, e.g.
-              `task.status.update.parts[0].text`. Array indices are supported. An
-              optional leading `payload.` is ignored. A path that resolves to
-              nothing yields a null field.
-        required:
-          - name
-          - selector
+        How the upstream A2A result is shaped for the caller. `responseMapping`
+        applies when `responseType=mapping`; `responseFields` applies when
+        `responseType=fields`. Both are ignored when `responseType=raw`.
+      properties:
+        responseMapping:
+          type: string
+          title: Response Mapping (DataWeave)
+          description: >
+            Used only when Response Type is `mapping`. DataWeave expression run
+            against the raw A2A result object (the Task or Message) to shape the
+            REST response body. On error (or when empty) the raw A2A body is passed
+            through unchanged (non-fatal) and a warning is logged. Example:
+            `#[payload.message.parts[0].text default payload.task.status.update.parts[0].text]`.
+          format: dataweave
+          bindings:
+            payload:
+              mimeType: json
+            attributes: true
+            authentication: false
+            vars: []
+        responseFields:
+          type: array
+          title: Response Fields (path selectors)
+          description: >
+            Used only when Response Type is `fields`. Build the REST response from
+            dotted-path selections of the raw A2A result; the policy assembles the
+            object. Use this to produce a flat/custom envelope: the gateway's
+            embedded DataWeave rejects object construction inside a single
+            expression, so reshaping is expressed as a list of selections here. Each
+            `selector` is a plain JSON path (NOT DataWeave) — the gateway does not
+            compile DataWeave nested inside array items. An output `name` may be
+            dotted (e.g. `data.taskRef`) to nest. Conditionals and computed values
+            are out of scope.
+          default: []
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                title: Output Field Name
+                description: Output key; dotted (e.g. `data.taskRef`) builds nested objects.
+              selector:
+                type: string
+                title: Field Path Selector
+                description: >
+                  Dotted JSON path into the raw A2A result, e.g.
+                  `task.status.update.parts[0].text`. Array indices are supported. An
+                  optional leading `payload.` is ignored. A path that resolves to
+                  nothing yields a null field.
+            required:
+              - name
+              - selector
   required:
     - upstreamBinding
     - promptSelector

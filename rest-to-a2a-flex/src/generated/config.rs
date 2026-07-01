@@ -21,6 +21,42 @@ pub struct Config {
     #[serde(alias = "continuationMode", default = "default_continuation_mode")]
     pub continuation_mode: String,
 
+    /// Cache-mode continuation settings, grouped in the schema under the
+    /// `cacheConfig` object for readability. Absent (the operator left the whole
+    /// object empty) → `None`; `config_map` then supplies defaults.
+    #[serde(alias = "cacheConfig", default)]
+    pub cache_config: Option<CacheConfig>,
+
+    /// Explicit-mode continuation selectors, grouped under `explicitConfig`.
+    #[serde(alias = "explicitConfig", default)]
+    pub explicit_config: Option<ExplicitConfig>,
+
+    #[serde(alias = "responseType", default = "default_response_type")]
+    pub response_type: String,
+
+    /// Response-shaping settings, grouped under `responseConfig`.
+    #[serde(alias = "responseConfig", default)]
+    pub response_config: Option<ResponseConfig>,
+
+    #[serde(alias = "a2aConfiguration")]
+    pub a2a_configuration: Option<A2aConfiguration>,
+
+    #[serde(
+        alias = "metadataSelector",
+        default,
+        deserialize_with = "de_optional_selector"
+    )]
+    pub metadata_selector: Option<pdk::script::Script>,
+
+    #[serde(alias = "requestErrorStatus", default = "default_request_error_status")]
+    pub request_error_status: i64,
+}
+
+/// Cache-mode continuation group (`cacheConfig` object in the schema). All
+/// fields optional so a partially-filled object still deserializes; missing
+/// scalars fall back to the same defaults as the flat schema.
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct CacheConfig {
     #[serde(
         alias = "contextKeySelector",
         default,
@@ -28,6 +64,19 @@ pub struct Config {
     )]
     pub context_key_selector: Option<pdk::script::Script>,
 
+    #[serde(alias = "distributed", default = "default_distributed")]
+    pub distributed: bool,
+
+    #[serde(
+        alias = "conversationTtlSeconds",
+        default = "default_conversation_ttl_seconds"
+    )]
+    pub conversation_ttl_seconds: i64,
+}
+
+/// Explicit-mode continuation group (`explicitConfig` object in the schema).
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct ExplicitConfig {
     #[serde(
         alias = "taskIdSelector",
         default,
@@ -41,10 +90,11 @@ pub struct Config {
         deserialize_with = "de_optional_selector"
     )]
     pub context_id_selector: Option<pdk::script::Script>,
+}
 
-    #[serde(alias = "responseType", default = "default_response_type")]
-    pub response_type: String,
-
+/// Response-shaping group (`responseConfig` object in the schema).
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct ResponseConfig {
     #[serde(
         alias = "responseMapping",
         default,
@@ -54,28 +104,6 @@ pub struct Config {
 
     #[serde(alias = "responseFields", default)]
     pub response_fields: Vec<ResponseField>,
-
-    #[serde(alias = "a2aConfiguration")]
-    pub a2a_configuration: Option<A2aConfiguration>,
-
-    #[serde(
-        alias = "metadataSelector",
-        default,
-        deserialize_with = "de_optional_selector"
-    )]
-    pub metadata_selector: Option<pdk::script::Script>,
-
-    #[serde(alias = "distributed", default = "default_distributed")]
-    pub distributed: bool,
-
-    #[serde(
-        alias = "conversationTtlSeconds",
-        default = "default_conversation_ttl_seconds"
-    )]
-    pub conversation_ttl_seconds: i64,
-
-    #[serde(alias = "requestErrorStatus", default = "default_request_error_status")]
-    pub request_error_status: i64,
 }
 
 /// One entry of `responseFields`: a (possibly dotted) output `name` plus a

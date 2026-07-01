@@ -136,23 +136,32 @@ impl PolicyConfig {
             blocking: a2a.blocking,
         });
 
+        // The schema groups the continuation/response selectors into nested
+        // objects (`cacheConfig`, `explicitConfig`, `responseConfig`) for UI
+        // readability. Flatten them here so the hot path keeps a flat struct.
+        // An absent group means the operator left the whole object empty →
+        // schema defaults apply.
+        let cache = config.cache_config.unwrap_or_default();
+        let explicit = config.explicit_config.unwrap_or_default();
+        let response = config.response_config.unwrap_or_default();
+
         Ok(Self {
             binding,
             continuation_mode,
             prompt_selector: config.prompt_selector,
-            context_key_selector: config.context_key_selector,
-            task_id_selector: config.task_id_selector,
-            context_id_selector: config.context_id_selector,
+            context_key_selector: cache.context_key_selector,
+            task_id_selector: explicit.task_id_selector,
+            context_id_selector: explicit.context_id_selector,
             response_type,
-            response_mapping: config.response_mapping,
-            response_fields: config.response_fields,
+            response_mapping: response.response_mapping,
+            response_fields: response.response_fields,
             metadata_selector: config.metadata_selector,
             send_configuration,
-            distributed: config.distributed,
+            distributed: cache.distributed,
             // Schema constrains these ranges (ttl 60..=86400, status 400..=599);
             // clamp defensively to the same bounds in case the schema is ever
             // loosened — a sub-minute TTL would thrash the conversation cache.
-            conversation_ttl_seconds: config.conversation_ttl_seconds.clamp(60, 86400) as u32,
+            conversation_ttl_seconds: cache.conversation_ttl_seconds.clamp(60, 86400) as u32,
             request_error_status: config.request_error_status.clamp(400, 599) as u32,
         })
     }
