@@ -85,7 +85,10 @@ pub struct PolicyConfig {
     pub binding: UpstreamBinding,
     pub continuation_mode: ContinuationMode,
     pub prompt_selector: Script,
-    pub context_key_selector: Script,
+    /// Cache-mode only. `None` when the operator left the box empty (the field
+    /// has no default and is not `required`) — the request filter then treats
+    /// the call as single-shot (no caching).
+    pub context_key_selector: Option<Script>,
     /// Explicit-mode only. `None` when the operator left the box empty — the
     /// request filter then treats it as "fresh task" without evaluating a
     /// selector.
@@ -97,7 +100,10 @@ pub struct PolicyConfig {
     /// `Mapping` applies `response_mapping`; `Fields` assembles from
     /// `response_fields`.
     pub response_type: ResponseType,
-    pub response_mapping: Script,
+    /// `Mapping`-mode only. `None` when the operator left the box empty (no
+    /// default, not `required`) — the response filter then passes the raw A2A
+    /// body through unchanged, matching the on-error posture.
+    pub response_mapping: Option<Script>,
     /// Dotted-path field list, used when `response_type` is `Fields`: the policy
     /// resolves each path against the raw A2A result and assembles the REST
     /// response object in Rust (the runtime can't construct objects in a

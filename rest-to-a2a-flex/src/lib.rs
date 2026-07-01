@@ -159,11 +159,15 @@ async fn request_filter<S: DataStorage>(
     // Continuation selectors depend on the mode. The explicit-mode selectors are
     // optional: a `None` evaluator means the operator left the box empty, which
     // the explicit resolver treats as a fresh task/context.
-    let mut key_eval = config.context_key_selector.evaluator();
+    let mut key_eval = config.context_key_selector.as_ref().map(|s| s.evaluator());
     let mut task_eval = config.task_id_selector.as_ref().map(|s| s.evaluator());
     let mut ctx_eval = config.context_id_selector.as_ref().map(|s| s.evaluator());
     match config.continuation_mode {
-        ContinuationMode::Cache => key_eval.bind_attributes(&attributes),
+        ContinuationMode::Cache => {
+            if let Some(e) = key_eval.as_mut() {
+                e.bind_attributes(&attributes);
+            }
+        }
         ContinuationMode::Explicit => {
             if let Some(e) = task_eval.as_mut() {
                 e.bind_attributes(&attributes);
@@ -195,7 +199,11 @@ async fn request_filter<S: DataStorage>(
         e.bind_payload(&payload);
     }
     match config.continuation_mode {
-        ContinuationMode::Cache => key_eval.bind_payload(&payload),
+        ContinuationMode::Cache => {
+            if let Some(e) = key_eval.as_mut() {
+                e.bind_payload(&payload);
+            }
+        }
         ContinuationMode::Explicit => {
             if let Some(e) = task_eval.as_mut() {
                 e.bind_payload(&payload);
@@ -227,7 +235,10 @@ async fn request_filter<S: DataStorage>(
     // Resolve continuation per mode.
     let request_continuation = match config.continuation_mode {
         ContinuationMode::Cache => {
-            let conversation_value = key_eval.eval().ok().and_then(value_to_string);
+            let conversation_value = key_eval
+                .take()
+                .and_then(|e| e.eval().ok())
+                .and_then(value_to_string);
             match &storage {
                 Some(storage) => {
                     let store = ConversationStore::new(
@@ -332,10 +343,14 @@ async fn response_filter<S: DataStorage>(
     //    live.
     let use_raw = config.uses_raw_response();
     let use_fields = config.uses_response_fields();
-    let mut mapping_eval = config.response_mapping.evaluator();
+    // `Mapping` mode with an empty selector (`None`) has nothing to run — the
+    // raw A2A body passes through, matching the on-error posture.
+    let mut mapping_eval = config.response_mapping.as_ref().map(|s| s.evaluator());
     if !use_raw && !use_fields {
-        let attributes = HandlerAttributesBinding::new(headers_state.handler(), &stream);
-        mapping_eval.bind_attributes(&attributes);
+        if let Some(e) = mapping_eval.as_mut() {
+            let attributes = HandlerAttributesBinding::new(headers_state.handler(), &stream);
+            e.bind_attributes(&attributes);
+        }
     }
 
     // Header mutations must happen in the headers phase. When shaping, the body
@@ -459,7 +474,7 @@ async fn response_filter<S: DataStorage>(
                 "rest-to-a2a: failed to set assembled response body (passing raw through): {err:?}"
             );
         }
-    } else {
+    } else if let Some(mut mapping_eval) = mapping_eval {
         mapping_eval.bind_payload(&payload);
         match mapping_eval.eval() {
             Ok(value) => {
@@ -476,6 +491,12 @@ async fn response_filter<S: DataStorage>(
                 );
             }
         }
+    } else {
+        // Mapping mode selected but selector left empty — pass the raw A2A body
+        // through unchanged (non-fatal), matching the on-error posture.
+        logger::warn!(
+            "rest-to-a2a: responseType=mapping but responseMapping is empty — passing raw A2A body through"
+        );
     }
 }
 

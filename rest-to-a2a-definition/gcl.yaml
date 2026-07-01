@@ -65,9 +65,10 @@ spec:
       description: >
         Used only when `continuationMode=cache`. DataWeave expression returning a
         conversation-identifying value (header/field). It is SHA-256 hashed into
-        the cache key. A null result means single-shot (no caching for this call).
+        the cache key. A null/empty result means single-shot (no caching for this
+        call). Leave empty when not using cache mode. Example:
+        `#[payload.conversationId]`.
       format: dataweave
-      default: "#[null]"
       "@rendering":
         "@visibleOn":
           - property: continuationMode
@@ -82,11 +83,10 @@ spec:
       type: string
       title: Task ID Selector (DataWeave)
       description: >
-        Required when `continuationMode=explicit` (shown in the UI for that mode
-        only). DataWeave expression returning the A2A `taskId` to continue. Return
-        null (the default `#[null]`) for a fresh task.
+        Used when `continuationMode=explicit` (shown in the UI for that mode
+        only). DataWeave expression returning the A2A `taskId` to continue. Leave
+        empty for a fresh task. Example: `#[payload.taskId]`.
       format: dataweave
-      default: "#[null]"
       "@rendering":
         "@visibleOn":
           - property: continuationMode
@@ -101,11 +101,10 @@ spec:
       type: string
       title: Context ID Selector (DataWeave)
       description: >
-        Required when `continuationMode=explicit` (shown in the UI for that mode
+        Used when `continuationMode=explicit` (shown in the UI for that mode
         only). DataWeave expression returning the A2A `contextId` to continue.
-        Return null (the default `#[null]`) for a fresh context.
+        Leave empty for a fresh context. Example: `#[payload.contextId]`.
       format: dataweave
-      default: "#[null]"
       "@rendering":
         "@visibleOn":
           - property: continuationMode
@@ -201,10 +200,10 @@ spec:
       description: >
         Used only when Response Type is `mapping`. DataWeave expression run against
         the raw A2A result object (the Task or Message) to shape the REST response
-        body. On error the raw A2A body is passed through unchanged (non-fatal)
-        and a warning is logged.
+        body. On error (or when empty) the raw A2A body is passed through unchanged
+        (non-fatal) and a warning is logged. Example:
+        `#[payload.message.parts[0].text default payload.task.status.update.parts[0].text]`.
       format: dataweave
-      default: "#[payload]"
       "@rendering":
         "@visibleOn":
           - property: responseType
@@ -254,7 +253,3 @@ spec:
     - upstreamBinding
     - promptSelector
     - continuationMode
-    - contextKeySelector
-    - taskIdSelector
-    - contextIdSelector
-    - responseMapping

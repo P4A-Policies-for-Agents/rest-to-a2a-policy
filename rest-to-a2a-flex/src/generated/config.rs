@@ -21,8 +21,12 @@ pub struct Config {
     #[serde(alias = "continuationMode", default = "default_continuation_mode")]
     pub continuation_mode: String,
 
-    #[serde(alias = "contextKeySelector", deserialize_with = "de_selector")]
-    pub context_key_selector: pdk::script::Script,
+    #[serde(
+        alias = "contextKeySelector",
+        default,
+        deserialize_with = "de_optional_selector"
+    )]
+    pub context_key_selector: Option<pdk::script::Script>,
 
     #[serde(
         alias = "taskIdSelector",
@@ -41,8 +45,12 @@ pub struct Config {
     #[serde(alias = "responseType", default = "default_response_type")]
     pub response_type: String,
 
-    #[serde(alias = "responseMapping", deserialize_with = "de_selector")]
-    pub response_mapping: pdk::script::Script,
+    #[serde(
+        alias = "responseMapping",
+        default,
+        deserialize_with = "de_optional_selector"
+    )]
+    pub response_mapping: Option<pdk::script::Script>,
 
     #[serde(alias = "responseFields", default)]
     pub response_fields: Vec<ResponseField>,

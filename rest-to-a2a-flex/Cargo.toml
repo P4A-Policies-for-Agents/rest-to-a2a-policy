@@ -3,7 +3,7 @@
 
 [package]
 name = "rest_to_a2a"
-version = "1.0.2"
+version = "1.0.3"
 rust-version = "1.88.0"
 edition = "2021"
 resolver = "2"
@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 
 [package.metadata.anypoint]
 group_id = "00000000-0000-0000-0000-000000000000"
-definition_asset_id = { name = "rest-to-a2a", version = "1.0.2" }
+definition_asset_id = { name = "rest-to-a2a", version = "1.0.3" }
 implementation_asset_id = "rest-to-a2a-flex"
 
 [dependencies]
